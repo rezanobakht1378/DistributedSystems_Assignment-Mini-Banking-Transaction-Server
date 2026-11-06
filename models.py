@@ -260,55 +260,64 @@ class BankStore:
             expire_on_commit=False,
         )
 
+    @staticmethod
+    def _account_rows_for_range(
+        account_range: tuple[str, str] | None = None,
+    ) -> list[dict[str, Any]]:
+        start, end = ("A0001", "A2000") if account_range is None else account_range
+        sample_accounts = {
+            "A0001": {
+                "wallet": "A0001",
+                "name": "Sample Customer 0",
+                "balance": Decimal("750.00"),
+            },
+            "A0002": {
+                "wallet": "A0002",
+                "name": "Sample Customer 0B",
+                "balance": Decimal("600.00"),
+            },
+            "A1001": {
+                "wallet": "A1001",
+                "name": "Sample Customer 1",
+                "balance": Decimal("1000.00"),
+            },
+            "A1002": {
+                "wallet": "A1002",
+                "name": "Sample Customer 2",
+                "balance": Decimal("500.00"),
+            },
+            "A1003": {
+                "wallet": "A1003",
+                "name": "Sample Customer 3",
+                "balance": Decimal("2000.00"),
+            },
+        }
+
+        start_index = int(start[1:])
+        end_index = int(end[1:])
+        now = datetime.now(timezone.utc)
+        accounts: list[dict[str, Any]] = []
+        for number in range(start_index, end_index + 1):
+            wallet = f"A{number:04d}"
+            if wallet in sample_accounts:
+                row = dict(sample_accounts[wallet])
+            else:
+                row = {
+                    "wallet": wallet,
+                    "name": f"Customer {wallet}",
+                    "balance": Decimal("0.00"),
+                }
+            row.setdefault("created_at", now)
+            row.setdefault("updated_at", now)
+            accounts.append(row)
+        return accounts
+
     def initialize(
         self,
         account_range: tuple[str, str] | None = None,
     ) -> None:
         Base.metadata.create_all(self.engine)
-        now = datetime.now(timezone.utc)
-        accounts = [
-            {
-                "wallet": "A0001",
-                "name": "Sample Customer 0",
-                "balance": Decimal("750.00"),
-                "created_at": now,
-                "updated_at": now,
-            },
-            {
-                "wallet": "A0002",
-                "name": "Sample Customer 0B",
-                "balance": Decimal("600.00"),
-                "created_at": now,
-                "updated_at": now,
-            },
-            {
-                "wallet": "A1001",
-                "name": "Sample Customer 1",
-                "balance": Decimal("1000.00"),
-                "created_at": now,
-                "updated_at": now,
-            },
-            {
-                "wallet": "A1002",
-                "name": "Sample Customer 2",
-                "balance": Decimal("500.00"),
-                "created_at": now,
-                "updated_at": now,
-            },
-            {
-                "wallet": "A1003",
-                "name": "Sample Customer 3",
-                "balance": Decimal("2000.00"),
-                "created_at": now,
-                "updated_at": now,
-            },
-        ]
-        if account_range is not None:
-            start, end = account_range
-            accounts = [
-                account for account in accounts
-                if start <= account["wallet"] <= end
-            ]
+        accounts = self._account_rows_for_range(account_range)
         with self.session_factory.begin() as session:
             session.execute(
                 insert(Account)
