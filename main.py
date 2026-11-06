@@ -21,8 +21,19 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
-from models import MAX_BALANCE, BankStore, BankWitness, Operation
-from requestForms import ReplicationRequest, TransactionRequest
+from models import (
+    MAX_BALANCE,
+    BankStore,
+    BankWitness,
+    Operation,
+    ShardedBankStore,
+)
+from requestForms import (
+    CrossShardParticipantRequest,
+    ReplicationRequest,
+    TransactionRequest,
+)
+from shard_map import account_range_for_shard, shard_for_account
 
 load_dotenv()
 
@@ -42,6 +53,9 @@ class Settings:
     log_file: str
     witness_database_url: str | None = None
     cluster_id: str = "mini-banking"
+    shard_a_database_url: str | None = None
+    shard_b_database_url: str | None = None
+    shard_id: str | None = None
 
     @classmethod
     def from_environment(cls) -> Settings:
@@ -52,6 +66,19 @@ class Settings:
         heartbeat_interval = float(os.getenv("BANK_HEARTBEAT_INTERVAL", "1"))
         failure_threshold = int(os.getenv("BANK_FAILURE_THRESHOLD", "3"))
         witness_database_url = os.getenv("BANK_WITNESS_DATABASE_URL") or None
+        shard_a_database_url = os.getenv("BANK_SHARD_A_DATABASE_URL") or None
+        shard_b_database_url = os.getenv("BANK_SHARD_B_DATABASE_URL") or None
+        shard_id = os.getenv("BANK_SHARD_ID") or None
+        if (shard_a_database_url is None) != (shard_b_database_url is None):
+            raise ValueError(
+                "Set both BANK_SHARD_A_DATABASE_URL and BANK_SHARD_B_DATABASE_URL."
+            )
+        if shard_id is not None:
+            account_range_for_shard(shard_id)
+            if shard_a_database_url is not None:
+                raise ValueError(
+                    "BANK_SHARD_ID cannot be combined with the dual-shard database URLs."
+                )
         if role not in {"primary", "backup"}:
             raise ValueError("BANK_ROLE must be 'primary' or 'backup'.")
         if role == "backup" and not primary_url:
@@ -78,6 +105,9 @@ class Settings:
             log_file=os.getenv("BANK_LOG_FILE", "banking_server.log"),
             witness_database_url=witness_database_url,
             cluster_id=os.getenv("BANK_CLUSTER_ID", "mini-banking"),
+            shard_a_database_url=shard_a_database_url,
+            shard_b_database_url=shard_b_database_url,
+            shard_id=shard_id,
         )
 
 
@@ -146,10 +176,47 @@ def _validated_operation(
     )
 
 
+def _validate_shard_operation(
+    shard_id: str | None,
+    operation: Operation,
+) -> None:
+    if shard_id is None:
+        return
+    if shard_for_account(operation.account) != shard_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "account_not_on_shard",
+                "message": f"Account {operation.account} is not owned by {shard_id}.",
+            },
+        )
+    if (
+        operation.action == "transfer"
+        and operation.destination is not None
+        and shard_for_account(operation.destination) != shard_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail={
+                "error": "cross_shard_transfer_not_supported",
+                "message": (
+                    "Transfers between shards require the transaction "
+                    "coordinator and 2PC, which are not configured."
+                ),
+            },
+        )
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     config = settings or Settings.from_environment()
     logger = _configure_logger(config.log_file)
-    store = BankStore(config.database_url)
+    if config.shard_a_database_url and config.shard_b_database_url:
+        store = ShardedBankStore(
+            config.shard_a_database_url,
+            config.shard_b_database_url,
+        )
+    else:
+        store = BankStore(config.database_url)
     witness = (
         BankWitness(config.witness_database_url, config.cluster_id, logger)
         if config.witness_database_url
@@ -162,7 +229,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        store.initialize()
+        if config.shard_id is None:
+            store.initialize()
+        else:
+            store.initialize(account_range_for_shard(config.shard_id))
         monitor: asyncio.Task[None] | None = None
         if witness is not None:
             witness.initialize()
@@ -305,6 +375,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     def execute_operation(request: Request, operation: Operation) -> dict[str, Any]:
         request.state.account_id = operation.account
+        _validate_shard_operation(config.shard_id, operation)
         if request.app.state.role != "primary":
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -698,6 +769,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 body.destination if body.action == "transfer" else None
             ),
         )
+        _validate_shard_operation(config.shard_id, operation)
         with request.app.state.write_lock:
             if request.app.state.role == "primary":
                 raise HTTPException(
@@ -730,6 +802,86 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 config.cluster_id,
                 body.epoch,
             )
+
+    def cross_shard_participant(
+        body: CrossShardParticipantRequest,
+    ) -> tuple[BankStore, str]:
+        if config.shard_id is None or not isinstance(store, BankStore):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "error": "not_a_shard_participant",
+                    "message": "This app is not configured as a shard participant.",
+                },
+            )
+        source_shard = shard_for_account(body.source_account)
+        destination_shard = shard_for_account(body.destination_account)
+        if source_shard == destination_shard:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "not_cross_shard",
+                    "message": "2PC participant endpoints require two different shards.",
+                },
+            )
+        if config.shard_id == source_shard:
+            return store, "debit"
+        if config.shard_id == destination_shard:
+            return store, "credit"
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "wrong_shard",
+                "message": "This app does not own either account in the transfer.",
+            },
+        )
+
+    @app.post("/internal/2pc/prepare")
+    def prepare_cross_shard_transfer(body: CrossShardParticipantRequest):
+        participant_store, role = cross_shard_participant(body)
+        return participant_store.prepare_cross_shard_transfer(
+            body.transaction_id,
+            body.source_account,
+            body.destination_account,
+            body.amount,
+            role,
+            body.client_ip,
+        )
+
+    @app.post("/internal/2pc/commit")
+    def commit_cross_shard_transfer(body: CrossShardParticipantRequest):
+        participant_store, _ = cross_shard_participant(body)
+        return participant_store.commit_cross_shard_transfer(
+            body.transaction_id
+        )
+
+    @app.post("/internal/2pc/abort")
+    def abort_cross_shard_transfer(body: CrossShardParticipantRequest):
+        participant_store, role = cross_shard_participant(body)
+        return participant_store.abort_cross_shard_transfer(
+            body.transaction_id,
+            body.source_account,
+            body.destination_account,
+            body.amount,
+            role,
+            body.client_ip,
+        )
+
+    @app.get("/internal/2pc/{transaction_id}")
+    def cross_shard_transfer_status(
+        transaction_id: str,
+        request: Request,
+    ):
+        if config.shard_id is None or not isinstance(store, BankStore):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "error": "not_a_shard_participant",
+                    "message": "This app is not configured as a shard participant.",
+                },
+            )
+        request.state.action = "2pc_status"
+        return store.cross_shard_transfer_status(transaction_id)
 
     return app
 

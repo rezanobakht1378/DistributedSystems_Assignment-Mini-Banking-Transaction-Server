@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -59,3 +61,21 @@ class ReplicationRequest(BaseModel):
         if self.action == "transfer" and not self.destination:
             raise ValueError("destination is required for a transfer")
         return self
+
+
+class CrossShardParticipantRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    transaction_id: str = Field(min_length=1, max_length=128)
+    source_account: str
+    destination_account: str
+    amount: Decimal = Field(gt=0)
+    client_ip: str = "unknown"
+
+    @field_validator("amount")
+    @classmethod
+    def validate_transfer_amount(cls, value: Decimal) -> Decimal:
+        if not value.is_finite() or value.as_tuple().exponent < -2:
+            raise ValueError(
+                "amount must be a finite number with at most two decimal places")
+        return value

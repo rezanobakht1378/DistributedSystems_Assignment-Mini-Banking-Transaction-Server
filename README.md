@@ -83,6 +83,108 @@ shared application secret.
 
 ## Run
 
+### Docker Compose
+
+Start the gateway, two application replicas per shard, and the two independent
+PostgreSQL databases:
+
+```text
+docker compose up --build -d
+```
+
+The gateway is available on the host at `http://localhost:18080` (container
+port `8000`). Set `BANK_HTTP_PORT` to change the host port if needed. Configure
+the client with this single gateway URL; it never connects to shard app
+replicas directly. The gateway handles account routing, health checks, and
+replica failover.
+
+The explicit [shard-map.json](./shard-map.json) assigns `A0001`–`A1000` to
+Shard A and `A1001`–`A2000` to Shard B. The gateway reads this map and
+round-robins requests among that shard's replicas, checking `/health` before
+forwarding and skipping failed replicas. Both replicas for a shard use the
+same PostgreSQL database. The databases use separate Compose volumes,
+`shard-a-data` and `shard-b-data`; the coordinator's durable transaction log
+has its own `coordinator-data` volume. Each shard database is initialized
+only with sample accounts in its own range (`A0001`–`A0002` on A;
+`A1001`–`A1003` on B). Same-shard transfers lock both account rows and update
+balances, transaction history, and the idempotency result in one PostgreSQL
+transaction. The CLI client is built from `client/` and can be run as a
+one-off command:
+
+```text
+docker compose run --rm client balance A1001
+docker compose run --rm client deposit A1001 25.50
+docker compose run --rm client withdraw A1001 10
+docker compose run --rm client transfer A1001 A1002 5
+```
+
+Use `docker compose run --rm client transfer A0001 A0002 5` to exercise a
+Shard A transfer. Cross-shard transfers use the gateway as a 2PC coordinator:
+it records participant votes and the final decision in the persistent
+coordinator database before sending COMMIT or ABORT. Each shard persists
+prepared reservations and participant results so messages can be retried
+safely. After a gateway restart, unresolved PREPARING transactions are
+durably aborted, while durable COMMIT decisions are retried until both
+participants confirm. The gateway returns success only after both commit
+acknowledgements. Query progress with `GET /transactions/{request_id}`.
+App replicas can be individually stopped to verify that the gateway skips
+failed replicas and uses a healthy one.
+
+Stop the services with `docker compose down`. Both database volumes are
+retained; use `docker compose down -v` only when intentionally deleting shard
+data. To run the server outside Compose with sharding enabled, set
+`BANK_SHARD_ID` (`shard-a` or `shard-b`) and set `DATABASE_URL` to that
+shard's database. `BANK_SHARD_ID` makes an app reject accounts owned by the
+other shard and seeds only sample accounts in its own range. `gateway.py`
+uses `BANK_SHARD_A_REPLICAS` and `BANK_SHARD_B_REPLICAS` for its upstream
+replica lists. For legacy single-database mode, omit `BANK_SHARD_ID`. This
+Compose setup does not configure primary/backup replication or its separate
+witness database. Keep the coordinator database available and persistent:
+losing its durable decisions while participants are prepared can leave
+transfers unresolved.
+
+### Required Assignment 2 experiments
+
+The experiment driver automates all seven required scenarios: shard placement,
+replica load distribution, concurrent writes through replicas, replica
+interruption/failover, same- and cross-shard transfers, Coordinator crash
+recovery after durable COMMIT, and concurrent overlapping cross-shard
+transfers. It checks account placement in both PostgreSQL databases, returned
+balances and transaction states, participant acknowledgements, and money
+conservation. Gateway responses include `X-Backend-Replica`, and the gateway
+logs the selected replica with each forwarded request so routing is visible.
+
+Start the Compose deployment and run the experiments from the repository root:
+
+```powershell
+docker compose up --build -d
+python scripts\assignment2_experiments.py --gateway http://localhost:18080 --requests 20 --output results\assignment2.json
+```
+
+By default, the interrupted-2PC experiment is skipped. To run it, enable the
+demo-only pause after the Coordinator durably records COMMIT, recreate the
+gateway, and run that scenario separately:
+
+```powershell
+$env:BANK_EXPERIMENT_PAUSE_AFTER_COMMIT_SECONDS = "30"
+docker compose up -d --force-recreate gateway
+python scripts\assignment2_experiments.py --gateway http://localhost:18080 --experiments interrupted-2pc
+$env:BANK_EXPERIMENT_PAUSE_AFTER_COMMIT_SECONDS = "0"
+docker compose up -d --force-recreate gateway
+```
+
+The script waits until the transaction status shows durable `COMMIT` with no
+participant acknowledgements, stops and restarts the gateway, then verifies
+that recovery completes both acknowledgements. Keep the pause enabled only for
+this experiment. The replica-interruption scenario also stops and restarts
+`shard-a-app-1` automatically. The experiments issue small deposits and
+transfers against the sample accounts and retain all Compose volumes; use a
+disposable assignment deployment, not production data. Individual scenarios
+can be selected with `--experiments` and a comma-separated list of names:
+`shard-distribution`, `replica-load`, `concurrent-replica`,
+`replica-interruption`, `transfers`, `interrupted-2pc`, and `concurrent-2pc`.
+The JSON report can be attached to the technical report as experiment results.
+
 Install Python 3.10 or later and the pinned dependencies:
 
 ```text
@@ -141,15 +243,15 @@ Use equivalent `$env:BANK_...` assignments in PowerShell when Server B runs
 Windows. Replication has no authentication, so restrict the endpoint to a
 trusted network using the VM firewall.
 
-Set `BANK_SERVER_URLS` on the client machine to the server VM URLs, primary
-first, for example
-`http://SERVER_A_IP:8000,http://SERVER_B_IP:8000`. Then run:
+Set `BANK_GATEWAY_URL` on the client machine to the gateway address, for
+example `http://GATEWAY_IP:8000`. The client accepts one gateway URL; do not
+configure shard replica or backend server URLs. Then run:
 
 ```text
-python client.py balance A1001
-python client.py deposit A1001 25.50
-python client.py withdraw A1001 10
-python client.py transfer A1001 A1002 5
+python client/client.py balance A1001
+python client/client.py deposit A1001 25.50
+python client/client.py withdraw A1001 10
+python client/client.py transfer A1001 A1002 5
 ```
 
 Create a PostgreSQL database and user for each server, then set `DATABASE_URL`

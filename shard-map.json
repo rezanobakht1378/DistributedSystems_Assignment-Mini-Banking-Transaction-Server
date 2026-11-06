@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "shards": [
+    {
+      "id": "shard-a",
+      "range_start": "A0001",
+      "range_end": "A1000"
+    },
+    {
+      "id": "shard-b",
+      "range_start": "A1001",
+      "range_end": "A2000"
+    }
+  ]
+}

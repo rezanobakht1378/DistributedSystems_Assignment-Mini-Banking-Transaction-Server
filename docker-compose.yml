@@ -1,0 +1,164 @@
+x-shard-a-app: &shard-a-app
+  build:
+    context: .
+    dockerfile: Dockerfile
+  environment:
+    BANK_SHARD_ID: shard-a
+    BANK_HOST: 0.0.0.0
+    BANK_PORT: 8000
+    DATABASE_URL: postgresql://banking:banking@shard-a-db:5432/banking_shard_a
+  depends_on:
+    shard-a-db:
+      condition: service_healthy
+  healthcheck:
+    test:
+      - CMD
+      - python
+      - -c
+      - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"
+    interval: 5s
+    timeout: 3s
+    retries: 10
+  restart: unless-stopped
+
+x-shard-b-app: &shard-b-app
+  build:
+    context: .
+    dockerfile: Dockerfile
+  environment:
+    BANK_SHARD_ID: shard-b
+    BANK_HOST: 0.0.0.0
+    BANK_PORT: 8000
+    DATABASE_URL: postgresql://banking:banking@shard-b-db:5432/banking_shard_b
+  depends_on:
+    shard-b-db:
+      condition: service_healthy
+  healthcheck:
+    test:
+      - CMD
+      - python
+      - -c
+      - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"
+    interval: 5s
+    timeout: 3s
+    retries: 10
+  restart: unless-stopped
+
+services:
+  shard-a-db:
+    image: postgres:16
+    container_name: mini-banking-shard-a-db
+    environment:
+      POSTGRES_DB: banking_shard_a
+      POSTGRES_USER: banking
+      POSTGRES_PASSWORD: banking
+    volumes:
+      - shard-a-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U banking -d banking_shard_a"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  shard-b-db:
+    image: postgres:16
+    container_name: mini-banking-shard-b-db
+    environment:
+      POSTGRES_DB: banking_shard_b
+      POSTGRES_USER: banking
+      POSTGRES_PASSWORD: banking
+    volumes:
+      - shard-b-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U banking -d banking_shard_b"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  coordinator-db:
+    image: postgres:16
+    container_name: mini-banking-coordinator-db
+    environment:
+      POSTGRES_DB: banking_coordinator
+      POSTGRES_USER: banking
+      POSTGRES_PASSWORD: banking
+    volumes:
+      - coordinator-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U banking -d banking_coordinator"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  shard-a-app-1:
+    <<: *shard-a-app
+    container_name: mini-banking-shard-a-app-1
+
+  shard-a-app-2:
+    <<: *shard-a-app
+    container_name: mini-banking-shard-a-app-2
+
+  shard-b-app-1:
+    <<: *shard-b-app
+    container_name: mini-banking-shard-b-app-1
+
+  shard-b-app-2:
+    <<: *shard-b-app
+    container_name: mini-banking-shard-b-app-2
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "gateway.py"]
+    container_name: mini-banking-gateway
+    ports:
+      - "${BANK_HTTP_PORT:-18080}:8000"
+    environment:
+      BANK_HOST: 0.0.0.0
+      BANK_GATEWAY_PORT: 8000
+      BANK_SHARD_A_REPLICAS: http://shard-a-app-1:8000,http://shard-a-app-2:8000
+      BANK_SHARD_B_REPLICAS: http://shard-b-app-1:8000,http://shard-b-app-2:8000
+      BANK_COORDINATOR_DATABASE_URL: postgresql://banking:banking@coordinator-db:5432/banking_coordinator
+      BANK_EXPERIMENT_PAUSE_AFTER_COMMIT_SECONDS: "${BANK_EXPERIMENT_PAUSE_AFTER_COMMIT_SECONDS:-0}"
+    depends_on:
+      coordinator-db:
+        condition: service_healthy
+      shard-a-app-1:
+        condition: service_started
+      shard-a-app-2:
+        condition: service_started
+      shard-b-app-1:
+        condition: service_started
+      shard-b-app-2:
+        condition: service_started
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  client:
+    profiles: ["tools"]
+    container_name: mini-banking-client
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    environment:
+      BANK_GATEWAY_URL: http://gateway:8000
+    depends_on:
+      gateway:
+        condition: service_healthy
+
+volumes:
+  shard-a-data:
+  shard-b-data:
+  coordinator-data:

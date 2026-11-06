@@ -8,21 +8,25 @@ import time
 import uuid
 from collections.abc import Sequence
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
 
-def _server_urls(value: str | None) -> list[str]:
-    urls = [item.strip().rstrip("/")
-            for item in (value or "").split(",") if item.strip()]
-    if not urls:
+def _gateway_url(value: str | None) -> str:
+    url = (value or "").strip().rstrip("/")
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise argparse.ArgumentTypeError(
-            "Set BANK_SERVER_URLS or pass --servers with one or more server VM URLs.")
-    return urls
+            "Set BANK_GATEWAY_URL or pass --gateway with the gateway URL.")
+    if "," in url:
+        raise argparse.ArgumentTypeError(
+            "Configure exactly one gateway URL; the gateway handles shard routing and replica failover.")
+    return url
 
 
 def _send(
-    urls: Sequence[str],
+    gateway_url: str,
     method: str,
     path: str,
     *,
@@ -34,16 +38,23 @@ def _send(
     headers = {"X-Request-ID": request_id} if request_id else {}
     with httpx.Client(timeout=2) as client:
         for attempt in range(12):
-            for url in urls:
-                try:
-                    response = client.request(
-                        method, url + path, json=body, params=params, headers=headers)
-                    if response.status_code < 500 and response.status_code != 503:
-                        return response
-                    last_error = httpx.HTTPStatusError(
-                        f"Server returned HTTP {response.status_code}.", request=response.request, response=response)
-                except httpx.RequestError as error:
-                    last_error = error
+            try:
+                response = client.request(
+                    method,
+                    gateway_url + path,
+                    json=body,
+                    params=params,
+                    headers=headers,
+                )
+                if response.status_code < 500 and response.status_code != 503:
+                    return response
+                last_error = httpx.HTTPStatusError(
+                    f"Gateway returned HTTP {response.status_code}.",
+                    request=response.request,
+                    response=response,
+                )
+            except httpx.RequestError as error:
+                last_error = error
             if attempt < 11:
                 time.sleep(0.5)
     if last_error is not None:
@@ -53,9 +64,12 @@ def _send(
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Client for the mini banking server.")
-    parser.add_argument("--servers", default=os.getenv("BANK_SERVER_URLS"),
-                        help="Comma-separated server VM URLs; defaults to BANK_SERVER_URLS.",)
+        description="Client for the mini banking gateway.")
+    parser.add_argument(
+        "--gateway",
+        default=os.getenv("BANK_GATEWAY_URL"),
+        help="Gateway URL; defaults to BANK_GATEWAY_URL.",
+    )
     commands = parser.add_subparsers(dest="command", required=True)
 
     balance = commands.add_parser("balance", help="Read an account balance.")
@@ -75,9 +89,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     try:
-        urls = _server_urls(args.servers)
+        gateway_url = _gateway_url(args.gateway)
         if args.command == "balance":
-            response = _send(urls, "GET", "/balance/inquiry",
+            response = _send(gateway_url, "GET", "/balance/inquiry",
                              params={"account": args.account})
         else:
             payload: dict[str, Any] = {
@@ -86,8 +100,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "amount": args.amount,
             }
             if args.command == "transfer":
-                payload["target_account"] = args.target_account
-            response = _send(urls, "POST", "/transactions",
+                payload["destination"] = args.target_account
+            response = _send(gateway_url, "POST", "/transactions",
                              body=payload, request_id=uuid.uuid4().hex)
         try:
             payload = response.json()
