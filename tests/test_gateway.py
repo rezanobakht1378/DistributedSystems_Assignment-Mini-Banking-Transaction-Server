@@ -14,6 +14,12 @@ class MemoryCoordinator:
     def initialize(self) -> None:
         pass
 
+    def ensure_replica(self, shard_id: str, replica_id: str, url: str) -> None:
+        pass
+
+    def replica_urls(self, shard_id: str) -> list[str]:
+        return []
+
     def begin(
         self,
         transaction_id: str,
@@ -42,7 +48,10 @@ class MemoryCoordinator:
         return self.transaction.copy()
 
     def get(self, transaction_id: str) -> dict[str, object] | None:
-        if self.transaction is None:
+        if (
+            self.transaction is None
+            or self.transaction["transaction_id"] != transaction_id
+        ):
             return None
         return self.transaction.copy()
 
@@ -216,6 +225,88 @@ class ShardGatewayTests(unittest.TestCase):
         )
         self.assertEqual(self.calls, [])
 
+    def test_transaction_status_returns_pending_for_unresolved_transaction(self) -> None:
+        coordinator = MemoryCoordinator()
+        coordinator.transaction = {
+            "transaction_id": "pending-transfer",
+            "state": "COMMIT",
+            "source_vote": True,
+            "destination_vote": True,
+            "source_ack": True,
+            "destination_ack": False,
+            "response": None,
+            "error_message": None,
+        }
+        app = create_app(
+            {
+                "shard-a": ["http://a1:8000"],
+                "shard-b": ["http://b1:8000"],
+            },
+            transport=httpx.MockTransport(lambda request: httpx.Response(200)),
+            coordinator_store=coordinator,
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/transactions/pending-transfer")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "PENDING")
+        self.assertEqual(response.json()["state"], "COMMIT")
+        self.assertTrue(response.json()["source_ack"])
+        self.assertFalse(response.json()["destination_ack"])
+
+    def test_transaction_status_returns_unknown_for_unseen_transaction(self) -> None:
+        app = create_app(
+            {
+                "shard-a": ["http://a1:8000"],
+                "shard-b": ["http://b1:8000"],
+            },
+            transport=httpx.MockTransport(lambda request: httpx.Response(200)),
+            coordinator_store=MemoryCoordinator(),
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/transactions/not-yet-created")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "transaction_id": "not-yet-created",
+                "status": "UNKNOWN",
+                "state": None,
+                "message": "No coordinated transaction exists for this ID.",
+            },
+        )
+
+    def test_transaction_status_returns_aborted_for_resolved_abort(self) -> None:
+        coordinator = MemoryCoordinator()
+        coordinator.transaction = {
+            "transaction_id": "aborted-transfer",
+            "state": "ABORTED",
+            "source_vote": True,
+            "destination_vote": False,
+            "source_ack": True,
+            "destination_ack": True,
+            "response": None,
+            "error_message": "participant_voted_no",
+        }
+        app = create_app(
+            {
+                "shard-a": ["http://a1:8000"],
+                "shard-b": ["http://b1:8000"],
+            },
+            transport=httpx.MockTransport(lambda request: httpx.Response(200)),
+            coordinator_store=coordinator,
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/transactions/aborted-transfer")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ABORTED")
+        self.assertEqual(response.json()["state"], "ABORTED")
+
     def test_cross_shard_transfer_runs_prepare_then_durable_commit(self) -> None:
         coordinator = MemoryCoordinator()
         events: list[str] = []
@@ -258,6 +349,7 @@ class ShardGatewayTests(unittest.TestCase):
                     "amount": "5",
                 },
             )
+            status_response = client.get("/transactions/cross-shard-1")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["source_balance"], 95.0)
@@ -272,6 +364,8 @@ class ShardGatewayTests(unittest.TestCase):
             coordinator.events.index("ack:destination"),
         )
         self.assertEqual(coordinator.transaction["state"], "COMMITTED")
+        self.assertEqual(status_response.status_code, 200)
+        self.assertEqual(status_response.json()["status"], "COMPLETED")
 
 
 if __name__ == "__main__":

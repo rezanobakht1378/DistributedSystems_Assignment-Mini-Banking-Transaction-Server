@@ -197,6 +197,29 @@ class CoordinatedTransfer(CoordinatorBase):
         onupdate=lambda: datetime.now(timezone.utc))
 
 
+class GatewayReplica(CoordinatorBase):
+    __tablename__ = "bank_gateway_replicas"
+    __table_args__ = (
+        UniqueConstraint(
+            "container_name",
+            name="bank_gateway_replicas_container_unique",
+        ),
+    )
+
+    shard_id: Mapped[str] = mapped_column(String, primary_key=True)
+    replica_id: Mapped[str] = mapped_column(String, primary_key=True)
+    url: Mapped[str] = mapped_column(String, nullable=False)
+    container_name: Mapped[str | None] = mapped_column(String)
+    managed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
 @dataclass(frozen=True)
 class Operation:
     action: str
@@ -1310,6 +1333,115 @@ class CoordinatorStore:
 
     def initialize(self) -> None:
         CoordinatorBase.metadata.create_all(self.engine)
+
+    def register_replica(
+        self,
+        shard_id: str,
+        replica_id: str,
+        url: str,
+        *,
+        container_name: str | None = None,
+        managed: bool = False,
+        enabled: bool = True,
+    ) -> None:
+        with self.session_factory.begin() as session:
+            session.execute(
+                insert(GatewayReplica)
+                .values(
+                    shard_id=shard_id,
+                    replica_id=replica_id,
+                    url=url.rstrip("/"),
+                    container_name=container_name,
+                    managed=managed,
+                    enabled=enabled,
+                    updated_at=datetime.now(timezone.utc),
+                )
+                .on_conflict_do_update(
+                    index_elements=[
+                        GatewayReplica.shard_id,
+                        GatewayReplica.replica_id,
+                    ],
+                    set_={
+                        "url": url.rstrip("/"),
+                        "container_name": container_name,
+                        "managed": managed,
+                        "enabled": enabled,
+                        "updated_at": datetime.now(timezone.utc),
+                    },
+                )
+            )
+
+    def ensure_replica(
+        self,
+        shard_id: str,
+        replica_id: str,
+        url: str,
+    ) -> None:
+        with self.session_factory.begin() as session:
+            session.execute(
+                insert(GatewayReplica)
+                .values(
+                    shard_id=shard_id,
+                    replica_id=replica_id,
+                    url=url.rstrip("/"),
+                    managed=False,
+                    enabled=True,
+                )
+                .on_conflict_do_nothing(
+                    index_elements=[
+                        GatewayReplica.shard_id,
+                        GatewayReplica.replica_id,
+                    ]
+                )
+            )
+
+    def replica_records(
+        self,
+        shard_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        with self.session_factory() as session:
+            query = select(GatewayReplica).order_by(
+                GatewayReplica.shard_id,
+                GatewayReplica.replica_id,
+            )
+            if shard_id is not None:
+                query = query.where(GatewayReplica.shard_id == shard_id)
+            return [
+                {
+                    "shard_id": replica.shard_id,
+                    "replica_id": replica.replica_id,
+                    "url": replica.url,
+                    "container_name": replica.container_name,
+                    "managed": replica.managed,
+                    "enabled": replica.enabled,
+                }
+                for replica in session.scalars(query)
+            ]
+
+    def replica_urls(self, shard_id: str) -> list[str]:
+        with self.session_factory() as session:
+            return list(
+                session.scalars(
+                    select(GatewayReplica.url)
+                    .where(
+                        GatewayReplica.shard_id == shard_id,
+                        GatewayReplica.enabled.is_(True),
+                    )
+                    .order_by(GatewayReplica.replica_id)
+                )
+            )
+
+    def set_replica_enabled(
+        self,
+        shard_id: str,
+        replica_id: str,
+        enabled: bool,
+    ) -> None:
+        with self.session_factory.begin() as session:
+            replica = session.get(GatewayReplica, (shard_id, replica_id))
+            if replica is not None:
+                replica.enabled = enabled
+                replica.updated_at = datetime.now(timezone.utc)
 
     @staticmethod
     def _as_dict(transaction: CoordinatedTransfer) -> dict[str, Any]:

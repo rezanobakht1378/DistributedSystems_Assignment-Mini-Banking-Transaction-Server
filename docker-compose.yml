@@ -1,4 +1,5 @@
 x-shard-a-app: &shard-a-app
+  image: mini-banking-app:local
   build:
     context: .
     dockerfile: Dockerfile
@@ -19,9 +20,9 @@ x-shard-a-app: &shard-a-app
     interval: 5s
     timeout: 3s
     retries: 10
-  restart: unless-stopped
 
 x-shard-b-app: &shard-b-app
+  image: mini-banking-app:local
   build:
     context: .
     dockerfile: Dockerfile
@@ -42,7 +43,6 @@ x-shard-b-app: &shard-b-app
     interval: 5s
     timeout: 3s
     retries: 10
-  restart: unless-stopped
 
 services:
   shard-a-db:
@@ -59,8 +59,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    restart: unless-stopped
-
   shard-b-db:
     image: postgres:16
     container_name: mini-banking-shard-b-db
@@ -75,8 +73,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    restart: unless-stopped
-
   coordinator-db:
     image: postgres:16
     container_name: mini-banking-coordinator-db
@@ -91,8 +87,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    restart: unless-stopped
-
   shard-a-app-1:
     <<: *shard-a-app
     container_name: mini-banking-shard-a-app-1
@@ -110,6 +104,7 @@ services:
     container_name: mini-banking-shard-b-app-2
 
   gateway:
+    image: mini-banking-app:local
     build:
       context: .
       dockerfile: Dockerfile
@@ -144,8 +139,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    restart: unless-stopped
-
   client:
     profiles: ["tools"]
     container_name: mini-banking-client
@@ -155,6 +148,26 @@ services:
     environment:
       BANK_GATEWAY_URL: http://gateway:8000
     depends_on:
+      gateway:
+        condition: service_healthy
+
+  self-healing-controller:
+    image: mini-banking-app:local
+    container_name: mini-banking-self-healing-controller
+    command: ["python", "self_healing_controller.py"]
+    environment:
+      BANK_COORDINATOR_DATABASE_URL: postgresql://banking:banking@coordinator-db:5432/banking_coordinator
+      BANK_SHARD_A_DATABASE_URL: postgresql://banking:banking@shard-a-db:5432/banking_shard_a
+      BANK_SHARD_B_DATABASE_URL: postgresql://banking:banking@shard-b-db:5432/banking_shard_b
+      BANK_APP_IMAGE: mini-banking-app:local
+      BANK_GATEWAY_CONTAINER_NAME: mini-banking-gateway
+      BANK_DESIRED_REPLICAS_PER_SHARD: "${BANK_DESIRED_REPLICAS_PER_SHARD:-2}"
+      BANK_HEALING_INTERVAL_SECONDS: "${BANK_HEALING_INTERVAL_SECONDS:-3}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      coordinator-db:
+        condition: service_healthy
       gateway:
         condition: service_healthy
 

@@ -77,6 +77,15 @@ def create_app(
         recovery_task: asyncio.Task[None] | None = None
         if coordinator is not None:
             await asyncio.to_thread(coordinator.initialize)
+            for shard_id, urls in replicas.items():
+                for url in urls:
+                    replica_id = httpx.URL(url).host or url
+                    await asyncio.to_thread(
+                        coordinator.ensure_replica,
+                        shard_id,
+                        replica_id,
+                        url,
+                    )
             recovery_task = asyncio.create_task(recover_transactions(app))
         try:
             yield
@@ -92,9 +101,23 @@ def create_app(
     app = FastAPI(title="Mini Banking Shard Gateway", lifespan=lifespan)
 
     async def next_candidates(shard_id: str) -> tuple[str, ...]:
-        urls = replicas[shard_id]
+        urls = (
+            await asyncio.to_thread(coordinator.replica_urls, shard_id)
+            if coordinator is not None
+            else []
+        )
+        if not urls:
+            urls = list(replicas.get(shard_id, ()))
+        if not urls:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "shard_unavailable",
+                    "message": f"No replicas are registered for {shard_id}.",
+                },
+            )
         async with app.state.replica_lock:
-            start = app.state.next_replica[shard_id]
+            start = app.state.next_replica.get(shard_id, 0)
             app.state.next_replica[shard_id] = (start + 1) % len(urls)
         return tuple(urls[(start + offset) % len(urls)] for offset in range(len(urls)))
 
@@ -624,16 +647,27 @@ def create_app(
             )
         transaction = await asyncio.to_thread(coordinator.get, transaction_id)
         if transaction is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "error": "unknown_transaction",
-                    "message": "No coordinated transaction exists for this ID.",
-                },
+            return {
+                "transaction_id": transaction_id,
+                "status": "UNKNOWN",
+                "state": None,
+                "message": "No coordinated transaction exists for this ID.",
+            }
+        state = transaction["state"]
+        if state in {"PREPARING", "COMMIT", "ABORT"}:
+            public_status = "PENDING"
+        elif state == "COMMITTED":
+            public_status = "COMPLETED"
+        elif state == "ABORTED":
+            public_status = "ABORTED"
+        else:
+            raise RuntimeError(
+                f"Coordinator returned an unsupported transaction state: {state!r}."
             )
         return {
             "transaction_id": transaction["transaction_id"],
-            "state": transaction["state"],
+            "status": public_status,
+            "state": state,
             "source_vote": transaction["source_vote"],
             "destination_vote": transaction["destination_vote"],
             "source_ack": transaction["source_ack"],

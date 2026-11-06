@@ -127,6 +127,12 @@ safely. After a gateway restart, unresolved PREPARING transactions are
 durably aborted, while durable COMMIT decisions are retried until both
 participants confirm. The gateway returns success only after both commit
 acknowledgements. Query progress with `GET /transactions/{request_id}`.
+The response includes a public `status`: `PENDING` while a transaction is
+being resolved, `COMPLETED` after commit, `ABORTED` after abort, or `UNKNOWN`
+when the ID has not been recorded. The internal 2PC `state`, votes, and
+participant acknowledgements are included for diagnostics; unknown IDs return
+HTTP 200 with `status: "UNKNOWN"` so clients can poll without treating an
+unseen ID as a transport error.
 App replicas can be individually stopped to verify that the gateway skips
 failed replicas and uses a healthy one.
 
@@ -147,7 +153,8 @@ transfers unresolved.
 
 The experiment driver automates all seven required scenarios: shard placement,
 replica load distribution, concurrent writes through replicas, replica
-interruption/failover, same- and cross-shard transfers, Coordinator crash
+interruption while concurrent requests are in flight and failover to a healthy
+replica, same- and cross-shard transfers, Coordinator crash
 recovery after durable COMMIT, and concurrent overlapping cross-shard
 transfers. It checks account placement in both PostgreSQL databases, returned
 balances and transaction states, participant acknowledgements, and money
@@ -184,6 +191,23 @@ can be selected with `--experiments` and a comma-separated list of names:
 `shard-distribution`, `replica-load`, `concurrent-replica`,
 `replica-interruption`, `transfers`, `interrupted-2pc`, and `concurrent-2pc`.
 The JSON report can be attached to the technical report as experiment results.
+
+The custom `self-healing-controller` uses the Docker API to maintain the
+configured minimum number of healthy application replicas. It persists managed
+replica identities in the Coordinator database, uses a PostgreSQL advisory lock
+to avoid duplicate controllers, and gives created application containers no
+Docker restart policy. The controller is granted access to the host Docker
+socket, so run this configuration only on a trusted development host. Run its
+failure/recovery experiment separately:
+
+```powershell
+python scripts\assignment2_experiments.py --gateway http://localhost:18080 --experiments self-healing
+```
+
+That experiment stops an application replica, verifies that its replacement
+serves traffic, crashes and restarts the controller while concurrent deposits
+are submitted, and checks that the persisted replacement is recovered without
+creating a second container with the same identity.
 
 Install Python 3.10 or later and the pinned dependencies:
 

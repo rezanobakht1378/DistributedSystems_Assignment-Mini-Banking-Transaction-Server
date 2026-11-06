@@ -4,6 +4,7 @@ import argparse
 import json
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -22,6 +23,7 @@ EXPERIMENTS = (
     "replica-load",
     "concurrent-replica",
     "replica-interruption",
+    "self-healing",
     "transfers",
     "interrupted-2pc",
     "concurrent-2pc",
@@ -89,6 +91,21 @@ class Assignment2Experiments:
         if check and result.returncode:
             raise RuntimeError(
                 f"docker compose {' '.join(arguments)} failed: "
+                f"{result.stderr.strip() or result.stdout.strip()}"
+            )
+        return result.stdout.strip()
+
+    def docker(self, *arguments: str, check: bool = True) -> str:
+        result = subprocess.run(
+            ["docker", *arguments],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if check and result.returncode:
+            raise RuntimeError(
+                f"docker {' '.join(arguments)} failed: "
                 f"{result.stderr.strip() or result.stdout.strip()}"
             )
         return result.stdout.strip()
@@ -184,7 +201,11 @@ class Assignment2Experiments:
         amount = Decimal(AMOUNT)
         before = self.balance(account)
 
+        workers = min(max(8, self.requests), 32)
+        barrier = threading.Barrier(workers + 1)
+
         def deposit(index: int) -> httpx.Response:
+            barrier.wait(timeout=10)
             return self.request(
                 "POST",
                 "/transactions",
@@ -220,29 +241,213 @@ class Assignment2Experiments:
 
     def experiment_replica_interruption(self) -> dict[str, Any]:
         service = "shard-a-app-1"
-        self.compose("stop", service)
+        stop_requests = threading.Event()
+        results: list[str] = []
+        failures: list[str] = []
+        lock = threading.Lock()
+
+        def send_until_stopped() -> None:
+            while not stop_requests.is_set():
+                try:
+                    response = self.request(
+                        "GET",
+                        "/balance/inquiry",
+                        params={"account": "A0001"},
+                    )
+                    replica = response.headers["X-Backend-Replica"]
+                    with lock:
+                        results.append(replica)
+                except httpx.HTTPError as error:
+                    with lock:
+                        failures.append(str(error))
+                    time.sleep(0.05)
+
+        workers = min(max(self.requests, 8), 32)
+        executor = ThreadPoolExecutor(max_workers=workers)
+        futures = [
+            executor.submit(send_until_stopped)
+            for _ in range(workers)
+        ]
+        gateway_stopped_replica = False
+        before_stop_count = 0
+        selected: list[str] = []
+        request_failures: list[str] = []
+        stopped_count = 0
         try:
-            replicas = []
-            for _ in range(5):
+            startup_deadline = time.monotonic() + 15
+            while time.monotonic() < startup_deadline:
+                with lock:
+                    if len(results) >= workers:
+                        before_stop_count = len(results)
+                        break
+                time.sleep(0.05)
+            else:
+                raise TimeoutError("Concurrent replica traffic did not start.")
+
+            self.compose("stop", service)
+            gateway_stopped_replica = True
+            failover_deadline = time.monotonic() + 30
+            while time.monotonic() < failover_deadline:
+                with lock:
+                    selected = results[before_stop_count:]
+                    request_failures = failures[:]
+                stopped_count = len(selected)
+                if stopped_count >= workers:
+                    break
+                time.sleep(0.05)
+
+            if stopped_count < workers:
+                raise AssertionError(
+                    "Gateway did not serve concurrent traffic through the "
+                    f"healthy replica after stopping {service}: {selected}"
+                )
+            if request_failures:
+                raise AssertionError(
+                    f"Requests failed during replica interruption: {request_failures}"
+                )
+            if any("shard-a-app-1" in name for name in selected):
+                raise AssertionError(
+                    f"Gateway selected the stopped replica during failover: {selected}"
+                )
+        finally:
+            stop_requests.set()
+            try:
+                for future in futures:
+                    future.result(timeout=15)
+            finally:
+                executor.shutdown(wait=True)
+                if gateway_stopped_replica:
+                    self.compose("start", service)
+        return {
+            "stopped_service": service,
+            "concurrent_workers": workers,
+            "successful_requests": len(selected),
+            "requests_routed_to_healthy_replica_after_stop": stopped_count,
+            "selected_replicas": sorted(set(selected)),
+            "replica_restarted": True,
+            "passed": True,
+        }
+
+    def experiment_self_healing(self) -> dict[str, Any]:
+        stopped_service = "shard-a-app-1"
+        controller_service = "self-healing-controller"
+        managed_prefix = "mini-banking-managed-shard-a-"
+        managed_name: str | None = None
+        controller_stopped = False
+        service_stopped = False
+        try:
+            self.compose("stop", stopped_service)
+            service_stopped = True
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline:
                 response = self.request(
                     "GET",
                     "/balance/inquiry",
                     params={"account": "A0001"},
                 )
-                replicas.append(response.headers["X-Backend-Replica"])
-            if not replicas or any("shard-a-app-1" in name for name in replicas):
-                raise AssertionError(
-                    f"Gateway routed traffic to the stopped replica: {replicas}"
+                replica = response.headers["X-Backend-Replica"]
+                if replica.startswith(managed_prefix):
+                    managed_name = replica
+                    break
+                time.sleep(1)
+            if managed_name is None:
+                raise TimeoutError(
+                    "The controller did not create and register a replacement "
+                    "replica after the failure."
                 )
+
+            self.docker(
+                "kill",
+                "--signal",
+                "KILL",
+                "mini-banking-self-healing-controller",
+            )
+            controller_stopped = True
+            self.docker("stop", managed_name)
+
+            account = "A0001"
+            before = self.balance(account)
+
+            def deposit(index: int) -> httpx.Response:
+                return self.request(
+                    "POST",
+                    "/transactions",
+                    body={
+                        "action": "deposit",
+                        "account": account,
+                        "amount": AMOUNT,
+                    },
+                    request_id=f"self-healing-{uuid.uuid4().hex}-{index}",
+                )
+
+            count = workers
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = [
+                    executor.submit(deposit, index)
+                    for index in range(count)
+                ]
+                barrier.wait(timeout=10)
+                self.compose("start", controller_service)
+                controller_stopped = False
+                responses = [
+                    future.result(timeout=30) for future in futures
+                ]
+            for response in responses:
+                response.raise_for_status()
+
+            deadline = time.monotonic() + 60
+            recovered = False
+            while time.monotonic() < deadline:
+                running = self.docker(
+                    "inspect",
+                    "--format",
+                    "{{.State.Running}}",
+                    managed_name,
+                    check=False,
+                )
+                container_names = self.docker(
+                    "ps",
+                    "-a",
+                    "--filter",
+                    f"name=^/{managed_name}$",
+                    "--format",
+                    "{{.Names}}",
+                    check=False,
+                ).splitlines()
+                if running == "true" and container_names == [managed_name]:
+                    response = self.request(
+                        "GET",
+                        "/balance/inquiry",
+                        params={"account": account},
+                    )
+                    recovered = (
+                        response.headers["X-Backend-Replica"] == managed_name
+                    )
+                    if recovered:
+                        break
+                time.sleep(1)
+            after = self.balance(account)
+            if not recovered or after != before + Decimal(AMOUNT) * count:
+                raise AssertionError(
+                    "Controller restart did not recover the deterministic "
+                    f"replacement or concurrent balances differ: "
+                    f"before={before}, after={after}, writes={count}."
+                )
+            return {
+                "stopped_service": stopped_service,
+                "managed_replica": managed_name,
+                "controller_restarted": True,
+                "concurrent_deposits": count,
+                "balance_before": str(before),
+                "balance_after": str(after),
+                "single_container_after_recovery": True,
+                "passed": True,
+            }
         finally:
-            self.compose("start", service)
-        return {
-            "stopped_service": service,
-            "successful_requests": len(replicas),
-            "selected_replicas": replicas,
-            "replica_restarted": True,
-            "passed": True,
-        }
+            if controller_stopped:
+                self.compose("start", controller_service, check=False)
+            if service_stopped:
+                self.compose("start", stopped_service, check=False)
 
     def experiment_transfers(self) -> dict[str, Any]:
         local_before = (self.balance("A0001"), self.balance("A0002"))
@@ -437,6 +642,7 @@ class Assignment2Experiments:
             "replica-load": self.experiment_replica_load,
             "concurrent-replica": self.experiment_concurrent_replica_operations,
             "replica-interruption": self.experiment_replica_interruption,
+            "self-healing": self.experiment_self_healing,
             "transfers": self.experiment_transfers,
             "interrupted-2pc": self.experiment_interrupted_2pc,
             "concurrent-2pc": self.experiment_concurrent_2pc,

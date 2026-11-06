@@ -8,6 +8,7 @@ click==8.5.0
 colorama==0.4.6
 detect-installer==0.2.1
 dnspython==2.9.0
+docker==7.1.0
 email-validator==2.3.0
 fastapi==0.143.2
 fastapi-cli==0.0.32
