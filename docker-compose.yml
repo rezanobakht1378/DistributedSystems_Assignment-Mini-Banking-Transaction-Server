@@ -48,6 +48,8 @@ services:
   shard-a-db:
     image: postgres:16
     container_name: mini-banking-shard-a-db
+    ports:
+      - "${BANK_SHARD_A_DB_PORT:-15431}:5432"
     environment:
       POSTGRES_DB: banking_shard_a
       POSTGRES_USER: banking
@@ -62,6 +64,8 @@ services:
   shard-b-db:
     image: postgres:16
     container_name: mini-banking-shard-b-db
+    ports:
+      - "${BANK_SHARD_B_DB_PORT:-15433}:5432"
     environment:
       POSTGRES_DB: banking_shard_b
       POSTGRES_USER: banking
@@ -76,6 +80,8 @@ services:
   coordinator-db:
     image: postgres:16
     container_name: mini-banking-coordinator-db
+    ports:
+      - "${BANK_COORDINATOR_DB_PORT:-15432}:5432"
     environment:
       POSTGRES_DB: banking_coordinator
       POSTGRES_USER: banking
