@@ -1,0 +1,115 @@
+# Scripts shared by the three PostgreSQL primary/standby StatefulSets.
+#
+#   prepare.sh      init container: makes the data directory match the role
+#                   recorded in the cluster's leader Lease
+#   start.sh        main container: starts PostgreSQL as primary or standby
+#   10-roles.sh     first initdb only: replication/app roles and synchronous
+#                   replication (commits wait for the standby's WAL flush)
+#   pg_hba.conf     password authentication for every network connection
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-scripts
+data:
+  prepare.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    role="$(cat /bootstrap/role)"
+    leader="$(cat /bootstrap/leader)"
+    epoch="$(cat /bootstrap/epoch 2>/dev/null || echo 0)"
+    initialized="$(cat /bootstrap/initialized)"
+    leader_host="${leader}.${DB_SERVICE}"
+    following="$(dirname "$PGDATA")/following"
+
+    mkdir -p "$PGDATA"
+    chown postgres:postgres "$(dirname "$PGDATA")" "$PGDATA"
+    chmod 700 "$PGDATA"
+    umask 077
+    printf '*:5432:*:replicator:%s\n' "$REPLICATION_PASSWORD" > /bootstrap/pgpass
+    chown postgres:postgres /bootstrap/pgpass
+
+    echo "prepare-data pod=${POD_NAME} role=${role} leader=${leader} initialized=${initialized}"
+    if [ "$role" = "primary" ]; then
+      if [ ! -s "$PGDATA/PG_VERSION" ] && [ "$initialized" = "true" ]; then
+        echo "FATAL: ${POD_NAME} is the recorded leader but its volume is empty." >&2
+        echo "Refusing to create an empty database over committed state." >&2
+        echo "Fail over to the standby (db_controller.py failover) or restore a backup." >&2
+        exit 1
+      fi
+      # A standby named leader keeps standby.signal; the controller promotes
+      # it with pg_promote() so it switches to a new timeline cleanly.
+      exit 0
+    fi
+
+    if [ -s "$PGDATA/PG_VERSION" ] && [ -f "$PGDATA/standby.signal" ]; then
+      # A standby of an earlier leader may hold WAL the new leader never
+      # received, so it only keeps its data while the leader is unchanged.
+      if [ ! -f "$following" ] || [ "$(cat "$following")" = "${leader}@${epoch}" ]; then
+        echo "${leader}@${epoch}" > "$following"
+        echo "keeping existing standby data"
+        exit 0
+      fi
+      echo "standby data follows $(cat "$following"); the leader is now ${leader}@${epoch}"
+    fi
+
+    # Empty volume, a standby of an earlier leader, or this Pod used to be
+    # the primary and was superseded: its data may contain unacknowledged
+    # transactions, so it is discarded and re-cloned from the current leader.
+    echo "waiting for leader ${leader_host} to run as primary"
+    until PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$leader_host" -U "$POSTGRES_USER" \
+        -d postgres -Atc 'SELECT NOT pg_is_in_recovery()' 2>/dev/null | grep -qx t; do
+      sleep 2
+    done
+    echo "cloning ${leader_host} with pg_basebackup"
+    find "$PGDATA" -mindepth 1 -delete
+    gosu postgres env PGPASSFILE=/bootstrap/pgpass \
+      pg_basebackup -h "$leader_host" -U replicator -D "$PGDATA" -X stream -c fast -R -w
+    echo "${leader}@${epoch}" > "$following"
+    echo "standby clone complete"
+
+  start.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    role="$(cat /bootstrap/role)"
+    leader="$(cat /bootstrap/leader)"
+    conninfo=""
+    if [ "$role" = "standby" ]; then
+      conninfo="host=${leader}.${DB_SERVICE} port=5432 user=replicator passfile=/bootstrap/pgpass application_name=${POD_NAME}"
+    fi
+    echo "starting postgres pod=${POD_NAME} role=${role} leader=${leader}"
+    exec docker-entrypoint.sh postgres \
+      -c hba_file=/etc/postgresql/pg_hba.conf \
+      -c wal_level=replica \
+      -c max_wal_senders=10 \
+      -c wal_keep_size=512MB \
+      -c hot_standby=on \
+      -c wal_log_hints=on \
+      -c max_connections=200 \
+      -c shared_buffers=64MB \
+      -c wal_sender_timeout=10s \
+      -c wal_receiver_timeout=10s \
+      -c tcp_keepalives_idle=10 \
+      -c tcp_keepalives_interval=5 \
+      -c tcp_keepalives_count=3 \
+      -c log_connections=off \
+      -c "primary_conninfo=${conninfo}"
+
+  10-roles.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+      -v replication_password="$REPLICATION_PASSWORD" \
+      -v app_password="$APP_PASSWORD" \
+      -v db="$POSTGRES_DB" <<'EOSQL'
+    CREATE ROLE replicator WITH REPLICATION LOGIN PASSWORD :'replication_password';
+    CREATE ROLE bank_app WITH LOGIN PASSWORD :'app_password';
+    ALTER DATABASE :"db" OWNER TO bank_app;
+    ALTER SCHEMA public OWNER TO bank_app;
+    ALTER SYSTEM SET synchronous_standby_names = '*';
+    ALTER SYSTEM SET synchronous_commit = 'on';
+    EOSQL
+
+  pg_hba.conf: |
+    local   all          all                    trust
+    host    replication  replicator  all        scram-sha-256
+    host    all          all         all        scram-sha-256

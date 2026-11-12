@@ -1,0 +1,113 @@
+{
+  "started_at": "2026-11-12T11:32:51.843610+00:00",
+  "gateway": "http://127.0.0.1:7242",
+  "session": "f2ba9ec6",
+  "passed": true,
+  "results": {
+    "rolling-update": {
+      "passed": true,
+      "details": {
+        "passed": true,
+        "image": "mini-banking-app:1.1.0",
+        "rollouts": {
+          "shard-a-app": {
+            "seconds": 106.2,
+            "replaced_all_pods": true,
+            "images": [
+              "mini-banking-app:1.1.0"
+            ]
+          },
+          "shard-b-app": {
+            "seconds": 72.8,
+            "replaced_all_pods": true,
+            "images": [
+              "mini-banking-app:1.1.0"
+            ]
+          },
+          "gateway": {
+            "seconds": 64.6,
+            "replaced_all_pods": true,
+            "images": [
+              "mini-banking-app:1.1.0"
+            ]
+          }
+        }
+      },
+      "load": [
+        {
+          "concurrency": 8,
+          "operations": 2655,
+          "throughput_per_second": 10.4,
+          "outcomes": {
+            "success": 2655
+          },
+          "cross_shard_operations": 1101,
+          "client_retries": 1,
+          "retry_reasons": {
+            "RemoteProtocolError": 1
+          },
+          "seconds_with_errors": 1,
+          "seconds_with_errors_and_no_success": 0,
+          "max_seconds_to_definitive_answer": 5.2,
+          "backend_replicas": {
+            "shard-b-app-cf9578c7c-4fkgv": 117,
+            "shard-b-app-cf9578c7c-qqlqh": 43,
+            "shard-a-app-5597f48c65-g7c5c": 54,
+            "shard-a-app-5597f48c65-csd22": 21,
+            "shard-b-app-cf9578c7c-ptxwk": 44,
+            "shard-b-app-cf9578c7c-6tp84": 66,
+            "coordinator": 1101,
+            "shard-a-app-5597f48c65-28fj8": 27,
+            "shard-a-app-5597f48c65-ds4w4": 44,
+            "shard-a-app-5597f48c65-5cc29": 12,
+            "shard-b-app-cf9578c7c-kwr7p": 87,
+            "shard-a-app-5597f48c65-zxx5r": 40,
+            "shard-b-app-cf9578c7c-qg26c": 95,
+            "shard-a-app-65d6fc459b-c8qxm": 117,
+            "shard-a-app-65d6fc459b-25nj9": 110,
+            "shard-a-app-65d6fc459b-qtgdn": 103,
+            "shard-a-app-65d6fc459b-c8j4b": 97,
+            "shard-a-app-65d6fc459b-5j7cm": 81,
+            "shard-a-app-65d6fc459b-2lvf9": 89,
+            "shard-b-app-7f4476647b-bbpdm": 92,
+            "shard-b-app-7f4476647b-pmrsz": 94,
+            "shard-b-app-7f4476647b-zbhcv": 70,
+            "shard-b-app-7f4476647b-hfbtc": 51
+          },
+          "gateway_replicas": {
+            "gateway-74b5c774b-t6slh": 689,
+            "gateway-74b5c774b-tzp95": 706,
+            "gateway-74b5c774b-m5qkj": 544,
+            "gateway-74b5c774b-5l7wr": 619,
+            "gateway-7f97cbc6fc-fm72d": 46,
+            "gateway-7f97cbc6fc-pg62f": 29,
+            "gateway-7f97cbc6fc-cflft": 22
+          }
+        }
+      ],
+      "invariants": {
+        "checks": {
+          "all_operations_resolved": true,
+          "no_unexpected_errors": true,
+          "money_conserved": true,
+          "no_negative_balances": true,
+          "no_duplicate_effects": true,
+          "ledger_chain_intact": true,
+          "2pc_outcomes_match_client_answers": true,
+          "2pc_all_terminal": true,
+          "2pc_atomic_on_participants": true
+        },
+        "passed": true,
+        "total_before": "5284.39",
+        "acknowledged_deposits": "28.34",
+        "total_expected": "5312.73",
+        "total_actual": "5312.73",
+        "coordinator_states": {
+          "COMMITTED": 1101
+        },
+        "participant_rows": 2202,
+        "problems": {}
+      }
+    }
+  }
+}

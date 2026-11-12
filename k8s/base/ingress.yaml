@@ -1,0 +1,21 @@
+# Optional HTTP entry point through the ingress-nginx addon
+# (minikube addons enable ingress). The NodePort Service works without it.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: banking
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: banking.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  name: http

@@ -1,0 +1,53 @@
+# Three-VM cluster (bonus): VM1 control plane, VM2 and VM3 workers.
+#
+#   kubectl apply -k k8s/overlays/multi-vm
+#
+# Changes against k8s/base:
+# - every database cluster has 3 members on node-local volumes (local-path):
+#   the primary, a standby on the same worker and a standby on the other
+#   worker; db-controller keeps that layout and makes the standby on the
+#   other worker the synchronous one;
+# - two independent backup CronJobs, each writing to a volume on a different
+#   worker (node label banking.local/backup-slot);
+# - stateless Pods leave an unreachable node after 20 s instead of 300 s.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+  - backup-slot-2.yaml
+
+patches:
+  - path: database-placement.yaml
+  - path: db-controller.yaml
+  - path: backup-slot-1.yaml
+  - target:
+      kind: StatefulSet
+      labelSelector: app.kubernetes.io/component=database
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: add
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+        value: local-path
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: {cpu: 50m, memory: 96Mi}
+          limits: {cpu: "1", memory: 384Mi}
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: add
+        path: /spec/template/spec/tolerations
+        value:
+          - {key: node.kubernetes.io/unreachable, operator: Exists, effect: NoExecute, tolerationSeconds: 20}
+          - {key: node.kubernetes.io/not-ready, operator: Exists, effect: NoExecute, tolerationSeconds: 20}
+  - target:
+      kind: Deployment
+      name: "shard-a-app|shard-b-app|gateway"
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests
+        value: {cpu: 75m, memory: 96Mi}

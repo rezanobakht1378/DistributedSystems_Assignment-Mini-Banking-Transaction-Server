@@ -1,0 +1,446 @@
+{
+  "started_at": "2026-11-12T12:06:03.063798+00:00",
+  "gateway": "http://127.0.0.1:10273",
+  "session": "faffbc68",
+  "passed": true,
+  "results": {
+    "concurrent-transactions": {
+      "passed": true,
+      "details": {
+        "passed": true,
+        "overdraft_race": {
+          "account": "A0005",
+          "balance_before": "100.0",
+          "simultaneous_withdrawals": 20,
+          "amount_each": "10.00",
+          "expected_granted": 10,
+          "granted": 10,
+          "rejected_insufficient_funds": 10,
+          "balance_after_api": "0.0",
+          "balance_after_database": "0.00"
+        },
+        "colliding_transfers": {
+          "simultaneous": 40,
+          "outcomes": {
+            "success": 40
+          }
+        }
+      },
+      "load": [
+        {
+          "concurrency": 8,
+          "operations": 235,
+          "throughput_per_second": 12.4,
+          "outcomes": {
+            "success": 235
+          },
+          "cross_shard_operations": 98,
+          "client_retries": 0,
+          "retry_reasons": {},
+          "seconds_with_errors": 0,
+          "seconds_with_errors_and_no_success": 0,
+          "max_seconds_to_definitive_answer": 4.61,
+          "backend_replicas": {
+            "shard-b-app-7f5b84b8c9-xbnvd": 35,
+            "shard-b-app-7f5b84b8c9-gqtr2": 32,
+            "shard-a-app-cc664c775-qhcvc": 35,
+            "shard-a-app-cc664c775-swzgq": 35,
+            "coordinator": 98
+          },
+          "gateway_replicas": {
+            "gateway-6f8448647b-626r8": 125,
+            "gateway-6f8448647b-mhxfs": 110
+          }
+        },
+        {
+          "concurrency": 0,
+          "operations": 60,
+          "throughput_per_second": 7.5,
+          "outcomes": {
+            "success": 50,
+            "rejected": 10
+          },
+          "cross_shard_operations": 20,
+          "client_retries": 0,
+          "retry_reasons": {},
+          "seconds_with_errors": 0,
+          "seconds_with_errors_and_no_success": 0,
+          "max_seconds_to_definitive_answer": 4.72,
+          "backend_replicas": {
+            "shard-a-app-cc664c775-swzgq": 16,
+            "shard-a-app-cc664c775-qhcvc": 14,
+            "shard-b-app-7f5b84b8c9-xbnvd": 7,
+            "shard-b-app-7f5b84b8c9-gqtr2": 3,
+            "coordinator": 20
+          },
+          "gateway_replicas": {
+            "gateway-6f8448647b-mhxfs": 28,
+            "gateway-6f8448647b-626r8": 32
+          }
+        }
+      ],
+      "invariants": {
+        "checks": {
+          "all_operations_resolved": true,
+          "no_unexpected_errors": true,
+          "ledger_matches_acknowledged_operations": true,
+          "repeated_requests_got_identical_answers": true,
+          "money_conserved": true,
+          "no_negative_balances": true,
+          "no_duplicate_effects": true,
+          "ledger_chain_intact": true,
+          "2pc_outcomes_match_client_answers": true,
+          "2pc_all_terminal": true,
+          "2pc_atomic_on_participants": true
+        },
+        "passed": true,
+        "distinct_requests": 295,
+        "ledger_rows_verified": 520,
+        "total_before": "5586.19",
+        "acknowledged_deposits": "2.22",
+        "acknowledged_withdrawals": "100.00",
+        "total_expected": "5488.41",
+        "total_actual": "5488.41",
+        "coordinator_states": {
+          "COMMITTED": 118
+        },
+        "participant_rows": 236,
+        "problems": {}
+      }
+    },
+    "coordinator-interruption": {
+      "passed": true,
+      "details": {
+        "passed": true,
+        "after-prepare": {
+          "passed": true,
+          "transaction_id": "k8s-faffbc68-coordinator-interruption-after-prepare",
+          "killed_owner": "gateway-9f757bdd-9dcgr",
+          "state_when_killed": {
+            "coordinator": "PREPARING",
+            "source_vote": "true",
+            "destination_vote": null,
+            "acks": [
+              false,
+              false
+            ],
+            "participants": {
+              "debit": "prepared"
+            },
+            "ledger_rows": {
+              "shard-a-db": 0,
+              "shard-b-db": 0
+            }
+          },
+          "seconds_until_recovered_by_another_gateway": 17.7,
+          "state_after_recovery": {
+            "coordinator": "ABORTED",
+            "source_vote": "true",
+            "destination_vote": null,
+            "acks": [
+              true,
+              true
+            ],
+            "participants": {
+              "debit": "aborted",
+              "credit": "aborted"
+            },
+            "ledger_rows": {
+              "shard-a-db": 0,
+              "shard-b-db": 0
+            }
+          },
+          "client_retry_with_same_id": "aborted",
+          "money_moved": "0.0"
+        },
+        "after-commit": {
+          "passed": true,
+          "transaction_id": "k8s-faffbc68-coordinator-interruption-after-commit",
+          "killed_owner": "gateway-9f757bdd-mt7sp",
+          "state_when_killed": {
+            "coordinator": "COMMIT",
+            "source_vote": "true",
+            "destination_vote": "true",
+            "acks": [
+              false,
+              false
+            ],
+            "participants": {
+              "debit": "prepared",
+              "credit": "prepared"
+            },
+            "ledger_rows": {
+              "shard-a-db": 0,
+              "shard-b-db": 0
+            }
+          },
+          "seconds_until_recovered_by_another_gateway": 12.0,
+          "state_after_recovery": {
+            "coordinator": "COMMITTED",
+            "source_vote": "true",
+            "destination_vote": "true",
+            "acks": [
+              true,
+              true
+            ],
+            "participants": {
+              "debit": "committed",
+              "credit": "committed"
+            },
+            "ledger_rows": {
+              "shard-a-db": 1,
+              "shard-b-db": 1
+            }
+          },
+          "client_retry_with_same_id": "success",
+          "money_moved": "1.0"
+        }
+      },
+      "load": [
+        {
+          "concurrency": 8,
+          "operations": 3582,
+          "throughput_per_second": 24.5,
+          "outcomes": {
+            "success": 3582
+          },
+          "cross_shard_operations": 0,
+          "client_retries": 8,
+          "retry_reasons": {
+            "ReadTimeout": 8
+          },
+          "seconds_with_errors": 1,
+          "seconds_with_errors_and_no_success": 0,
+          "max_seconds_to_definitive_answer": 25.35,
+          "backend_replicas": {
+            "shard-a-app-cc664c775-swzgq": 614,
+            "shard-a-app-cc664c775-qhcvc": 616,
+            "shard-b-app-7f5b84b8c9-gqtr2": 625,
+            "shard-b-app-7f5b84b8c9-xbnvd": 621,
+            "shard-a-app-cc664c775-blp9v": 390,
+            "shard-b-app-7f5b84b8c9-rqg6r": 393,
+            "shard-a-app-cc664c775-7m8jq": 85,
+            "shard-b-app-7f5b84b8c9-tt2mb": 81,
+            "shard-b-app-7f5b84b8c9-h76bg": 80,
+            "shard-a-app-cc664c775-w7hn2": 77
+          },
+          "gateway_replicas": {
+            "gateway-6f8448647b-626r8": 496,
+            "gateway-6f8448647b-mhxfs": 615,
+            "gateway-9f757bdd-mt7sp": 1713,
+            "gateway-9f757bdd-dw6tk": 299,
+            "gateway-6f8448647b-429ck": 459
+          }
+        },
+        {
+          "concurrency": 0,
+          "operations": 3,
+          "throughput_per_second": 0.0,
+          "outcomes": {
+            "success": 2,
+            "aborted": 1
+          },
+          "cross_shard_operations": 2,
+          "client_retries": 0,
+          "retry_reasons": {},
+          "seconds_with_errors": 0,
+          "seconds_with_errors_and_no_success": 0,
+          "max_seconds_to_definitive_answer": 0.18,
+          "backend_replicas": {
+            "shard-a-app-cc664c775-swzgq": 1,
+            "coordinator": 2
+          },
+          "gateway_replicas": {
+            "gateway-6f8448647b-626r8": 1,
+            "gateway-9f757bdd-dw6tk": 2
+          }
+        }
+      ],
+      "invariants": {
+        "checks": {
+          "all_operations_resolved": true,
+          "no_unexpected_errors": true,
+          "ledger_matches_acknowledged_operations": true,
+          "repeated_requests_got_identical_answers": true,
+          "money_conserved": true,
+          "no_negative_balances": true,
+          "no_duplicate_effects": true,
+          "ledger_chain_intact": true,
+          "2pc_outcomes_match_client_answers": true,
+          "2pc_all_terminal": true,
+          "2pc_atomic_on_participants": true
+        },
+        "passed": true,
+        "distinct_requests": 3585,
+        "ledger_rows_verified": 6463,
+        "total_before": "5488.41",
+        "acknowledged_deposits": "50.06",
+        "acknowledged_withdrawals": "0",
+        "total_expected": "5538.47",
+        "total_actual": "5538.47",
+        "coordinator_states": {
+          "ABORTED": 1,
+          "COMMITTED": 1
+        },
+        "participant_rows": 4,
+        "problems": {}
+      }
+    },
+    "repeated-requests": {
+      "passed": true,
+      "details": {
+        "passed": true,
+        "deposit": {
+          "request_id": "k8s-faffbc68-repeated-requests-deposit",
+          "first_attempt": "response lost (client timed out)",
+          "submissions": 22,
+          "gateways_that_answered": [
+            "gateway-6f8448647b-429ck",
+            "gateway-6f8448647b-6wvmc"
+          ],
+          "distinct_answers": 1,
+          "outcome": "success",
+          "conflicting_reuse": "409 request_id_conflict",
+          "ledger_rows": {
+            "shard-a-db": 1,
+            "shard-b-db": 0
+          },
+          "idempotency_records": {
+            "shard-a-db": 1,
+            "shard-b-db": 0,
+            "coordinator-db": 0
+          }
+        },
+        "same-shard-transfer": {
+          "request_id": "k8s-faffbc68-repeated-requests-same-shard-transfer",
+          "first_attempt": "response lost (client timed out)",
+          "submissions": 22,
+          "gateways_that_answered": [
+            "gateway-6f8448647b-429ck",
+            "gateway-6f8448647b-6wvmc"
+          ],
+          "distinct_answers": 1,
+          "outcome": "success",
+          "conflicting_reuse": "409 request_id_conflict",
+          "ledger_rows": {
+            "shard-a-db": 2,
+            "shard-b-db": 0
+          },
+          "idempotency_records": {
+            "shard-a-db": 1,
+            "shard-b-db": 0,
+            "coordinator-db": 0
+          }
+        },
+        "cross-shard-transfer": {
+          "request_id": "k8s-faffbc68-repeated-requests-cross-shard-transfer",
+          "first_attempt": "response lost (client timed out)",
+          "submissions": 22,
+          "gateways_that_answered": [
+            "gateway-6f8448647b-429ck",
+            "gateway-6f8448647b-6wvmc"
+          ],
+          "distinct_answers": 1,
+          "outcome": "success",
+          "conflicting_reuse": "409 request_id_conflict",
+          "ledger_rows": {
+            "shard-a-db": 1,
+            "shard-b-db": 1
+          },
+          "idempotency_records": {
+            "shard-a-db": 1,
+            "shard-b-db": 1,
+            "coordinator-db": 1
+          }
+        }
+      },
+      "load": [
+        {
+          "concurrency": 8,
+          "operations": 423,
+          "throughput_per_second": 14.1,
+          "outcomes": {
+            "success": 423
+          },
+          "cross_shard_operations": 167,
+          "client_retries": 0,
+          "retry_reasons": {},
+          "seconds_with_errors": 0,
+          "seconds_with_errors_and_no_success": 0,
+          "max_seconds_to_definitive_answer": 2.15,
+          "backend_replicas": {
+            "shard-b-app-7f5b84b8c9-gqtr2": 30,
+            "shard-a-app-cc664c775-swzgq": 29,
+            "shard-b-app-7f5b84b8c9-rqg6r": 31,
+            "shard-a-app-cc664c775-qhcvc": 25,
+            "shard-b-app-7f5b84b8c9-tt2mb": 18,
+            "shard-a-app-cc664c775-w7hn2": 26,
+            "shard-a-app-cc664c775-7m8jq": 30,
+            "shard-b-app-7f5b84b8c9-h76bg": 21,
+            "shard-b-app-7f5b84b8c9-xbnvd": 28,
+            "coordinator": 167,
+            "shard-a-app-cc664c775-blp9v": 18
+          },
+          "gateway_replicas": {
+            "gateway-6f8448647b-6wvmc": 212,
+            "gateway-6f8448647b-429ck": 211
+          }
+        },
+        {
+          "concurrency": 0,
+          "operations": 63,
+          "throughput_per_second": 7.9,
+          "outcomes": {
+            "success": 63
+          },
+          "cross_shard_operations": 21,
+          "client_retries": 0,
+          "retry_reasons": {},
+          "seconds_with_errors": 0,
+          "seconds_with_errors_and_no_success": 0,
+          "max_seconds_to_definitive_answer": 3.05,
+          "backend_replicas": {
+            "shard-a-app-cc664c775-7m8jq": 7,
+            "shard-a-app-cc664c775-swzgq": 9,
+            "shard-a-app-cc664c775-w7hn2": 9,
+            "shard-a-app-cc664c775-blp9v": 9,
+            "shard-a-app-cc664c775-qhcvc": 8,
+            "coordinator": 21
+          },
+          "gateway_replicas": {
+            "gateway-6f8448647b-6wvmc": 45,
+            "gateway-6f8448647b-429ck": 18
+          }
+        }
+      ],
+      "invariants": {
+        "checks": {
+          "all_operations_resolved": true,
+          "no_unexpected_errors": true,
+          "ledger_matches_acknowledged_operations": true,
+          "repeated_requests_got_identical_answers": true,
+          "money_conserved": true,
+          "no_negative_balances": true,
+          "no_duplicate_effects": true,
+          "ledger_chain_intact": true,
+          "2pc_outcomes_match_client_answers": true,
+          "2pc_all_terminal": true,
+          "2pc_atomic_on_participants": true
+        },
+        "passed": true,
+        "distinct_requests": 426,
+        "ledger_rows_verified": 771,
+        "total_before": "5538.47",
+        "acknowledged_deposits": "4.31",
+        "acknowledged_withdrawals": "0",
+        "total_expected": "5542.78",
+        "total_actual": "5542.78",
+        "coordinator_states": {
+          "COMMITTED": 168
+        },
+        "participant_rows": 336,
+        "problems": {}
+      }
+    }
+  }
+}

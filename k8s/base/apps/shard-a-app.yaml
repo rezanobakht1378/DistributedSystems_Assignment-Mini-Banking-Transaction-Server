@@ -1,0 +1,172 @@
+# Stateless shard-a application replicas. The replica count is owned by the
+# HorizontalPodAutoscaler, so the Deployment deliberately has no replicas
+# field (re-applying the manifests must not reset a scaled Deployment).
+#
+# The headless Service lists only Ready Pods; the gateway resolves it to
+# route each request to an individual healthy replica.
+apiVersion: v1
+kind: Service
+metadata:
+  name: shard-a-app
+  labels:
+    app.kubernetes.io/name: shard-a-app
+    app.kubernetes.io/component: shard-app
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: shard-a-app
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shard-a-app
+  labels:
+    app.kubernetes.io/name: shard-a-app
+    app.kubernetes.io/component: shard-app
+spec:
+  revisionHistoryLimit: 5
+  progressDeadlineSeconds: 120
+  minReadySeconds: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shard-a-app
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: shard-a-app
+        app.kubernetes.io/component: shard-app
+        banking/shard: shard-a
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: banking-app
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          matchLabelKeys: ["pod-template-hash"]
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: shard-a-app
+      containers:
+        - name: app
+          image: mini-banking-app
+          imagePullPolicy: IfNotPresent
+          command: ["python", "main.py"]
+          envFrom:
+            - configMapRef:
+                name: banking-config
+          env:
+            - name: BANK_SHARD_ID
+              value: shard-a
+            - name: BANK_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: BANK_APP_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: banking-db-credentials, key: app-password}
+            - name: DATABASE_URL
+              value: postgresql://bank_app:$(BANK_APP_PASSWORD)@shard-a-db-rw:5432/banking_shard_a?target_session_attrs=read-write
+          ports:
+            - name: http
+              containerPort: 8000
+          startupProbe:
+            httpGet: {path: /livez, port: http}
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: {path: /livez, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 3
+            timeoutSeconds: 2
+            failureThreshold: 2
+          lifecycle:
+            preStop:
+              exec:
+                # Keep serving while endpoint removal propagates to the
+                # gateway; uvicorn then drains in-flight requests on SIGTERM.
+                command: ["sleep", "8"]
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: shard-map
+              mountPath: /etc/banking
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: shard-map
+          configMap:
+            name: banking-shard-map
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: shard-a-app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: shard-a-app
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 90
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 30
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: shard-a-app
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shard-a-app

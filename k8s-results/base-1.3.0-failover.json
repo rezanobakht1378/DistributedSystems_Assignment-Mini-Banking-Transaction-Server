@@ -1,0 +1,88 @@
+{
+  "started_at": "2026-11-12T12:52:36.457503+00:00",
+  "gateway": "http://127.0.0.1:10273",
+  "session": "d4510f54",
+  "passed": true,
+  "results": {
+    "db-failover:shard-b-db": {
+      "passed": true,
+      "details": {
+        "passed": true,
+        "frozen_primary": "shard-b-db-0",
+        "new_primary": "shard-b-db-1",
+        "epoch": [
+          0,
+          1
+        ],
+        "seconds_to_failover": 22.5,
+        "seconds_until_new_primary_writable": 24.3,
+        "extra_seconds_until_old_primary_rejoined_as_sync_standby": 18.7,
+        "min_ready_shard-b-app_pods_during_outage": 0,
+        "shard-b-app_container_restarts_during_failover": {}
+      },
+      "load": [
+        {
+          "concurrency": 8,
+          "operations": 199,
+          "throughput_per_second": 3.3,
+          "outcomes": {
+            "success": 196,
+            "aborted": 3
+          },
+          "cross_shard_operations": 88,
+          "client_retries": 52,
+          "retry_reasons": {
+            "http_503:shard_unavailable": 19,
+            "http_503:transaction_commit_pending": 15,
+            "http_503:transaction_abort_pending": 13,
+            "http_503:transaction_in_progress": 3,
+            "http_503:upstream_timeout": 2
+          },
+          "seconds_with_errors": 16,
+          "seconds_with_errors_and_no_success": 15,
+          "max_seconds_to_definitive_answer": 41.38,
+          "backend_replicas": {
+            "shard-a-app-6cf48b486b-zj8dp": 28,
+            "shard-b-app-fd6c65494-96vq5": 23,
+            "shard-b-app-fd6c65494-bkbnk": 34,
+            "shard-a-app-6cf48b486b-57r82": 26,
+            "coordinator": 88
+          },
+          "gateway_replicas": {
+            "gateway-87c8bf95-2vdtp": 101,
+            "gateway-87c8bf95-b68fm": 98
+          }
+        }
+      ],
+      "invariants": {
+        "checks": {
+          "all_operations_resolved": true,
+          "no_unexpected_errors": true,
+          "ledger_matches_acknowledged_operations": true,
+          "repeated_requests_got_identical_answers": true,
+          "money_conserved": true,
+          "no_negative_balances": true,
+          "no_duplicate_effects": true,
+          "ledger_chain_intact": true,
+          "2pc_outcomes_match_client_answers": true,
+          "2pc_all_terminal": true,
+          "2pc_atomic_on_participants": true
+        },
+        "passed": true,
+        "distinct_requests": 199,
+        "ledger_rows_verified": 353,
+        "total_before": "5822.18",
+        "acknowledged_deposits": "2.17",
+        "acknowledged_withdrawals": "0",
+        "total_expected": "5824.35",
+        "total_actual": "5824.35",
+        "coordinator_states": {
+          "COMMITTED": 85,
+          "ABORTED": 3
+        },
+        "participant_rows": 176,
+        "problems": {}
+      }
+    }
+  }
+}

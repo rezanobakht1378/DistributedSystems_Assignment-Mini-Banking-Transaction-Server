@@ -1,0 +1,105 @@
+# 2PC-consistent logical backups of all three databases (disaster recovery).
+#
+# The job holds the backup barrier (advisory lock 7420,1 in the coordinator
+# database) exclusively while it dumps the coordinator and both shards. Every
+# gateway holds that barrier in shared mode while it owns a coordinated
+# transfer, so no 2PC state changes in any database during the dumps: the
+# three files form one consistent cut. Single-shard operations keep running.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db-backups
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-backup-script
+data:
+  backup.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    target="/backups/${stamp}.partial"
+    mkdir -p "$target"
+    export PGPASSWORD="$APP_PASSWORD"
+
+    coproc BARRIER {
+      psql -h coordinator-db-rw -U bank_app -d banking_coordinator -Atq -v ON_ERROR_STOP=1
+    }
+    echo "SET lock_timeout = '60s'; SELECT pg_advisory_lock(7420, 1); SELECT 'barrier-acquired';" >&"${BARRIER[1]}"
+    line=""
+    while read -r -t 90 line <&"${BARRIER[0]}"; do
+      [ "$line" = "barrier-acquired" ] && break
+    done
+    if [ "$line" != "barrier-acquired" ]; then
+      echo "backup aborted: could not acquire the 2PC backup barrier" >&2
+      exit 1
+    fi
+    echo "barrier acquired; 2PC state is frozen"
+
+    pg_dump -h coordinator-db-rw -U bank_app -d banking_coordinator -Fc -f "$target/coordinator.dump"
+    pg_dump -h shard-a-db-rw -U bank_app -d banking_shard_a -Fc -f "$target/shard-a.dump"
+    pg_dump -h shard-b-db-rw -U bank_app -d banking_shard_b -Fc -f "$target/shard-b.dump"
+
+    exec {BARRIER[1]}>&-
+    wait "$BARRIER_PID" || true
+    echo "barrier released"
+
+    mv "$target" "/backups/${stamp}"
+    ls -1d /backups/20*Z 2>/dev/null | sort | head -n -"${BACKUP_KEEP:-24}" | xargs -r rm -rf
+    echo "backup complete: /backups/${stamp}"
+    ls -l "/backups/${stamp}"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-backup
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: db-backup
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            fsGroup: 999
+          containers:
+            - name: backup
+              image: postgres:16
+              imagePullPolicy: IfNotPresent
+              command: ["bash", "/scripts/backup.sh"]
+              env:
+                - name: APP_PASSWORD
+                  valueFrom:
+                    secretKeyRef: {name: banking-db-credentials, key: app-password}
+                - name: BACKUP_KEEP
+                  value: "24"
+              resources:
+                requests: {cpu: 20m, memory: 64Mi}
+                limits: {cpu: 500m, memory: 256Mi}
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+                - name: scripts
+                  mountPath: /scripts
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: db-backups
+            - name: scripts
+              configMap:
+                name: db-backup-script

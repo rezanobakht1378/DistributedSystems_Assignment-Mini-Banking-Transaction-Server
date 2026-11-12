@@ -1,0 +1,316 @@
+{
+  "scenario": "worker-destroy",
+  "started_at": "2026-11-12T21:36:00.041440+00:00",
+  "passed": true,
+  "details": {
+    "passed": true,
+    "destroyed_worker": "banking-mv-m04",
+    "destroyed_at_load_second": 21.9,
+    "primaries_on_destroyed_worker": [
+      "shard-a-db:shard-a-db-2",
+      "shard-b-db:shard-b-db-2",
+      "coordinator-db:coordinator-db-1"
+    ],
+    "failovers": {
+      "shard-a-db": {
+        "old_leader": "shard-a-db-2",
+        "new_leader": "shard-a-db-1",
+        "seconds_after_destruction": 33.6
+      },
+      "shard-b-db": {
+        "old_leader": "shard-b-db-2",
+        "new_leader": "shard-b-db-1",
+        "seconds_after_destruction": 36.5
+      },
+      "coordinator-db": {
+        "old_leader": "coordinator-db-1",
+        "new_leader": "coordinator-db-2",
+        "seconds_after_destruction": 39.3
+      }
+    },
+    "transfers_in_flight_at_destruction": [
+      {
+        "transaction_id": "k8s-8cad4d6a-worker-destroy-w0-8",
+        "state": "PREPARING",
+        "owner": "gateway-55c67fbb57-gmz8z",
+        "owner_node": "banking-mv-m04"
+      },
+      {
+        "transaction_id": "k8s-8cad4d6a-worker-destroy-w5-3",
+        "state": "COMMIT",
+        "owner": "gateway-55c67fbb57-nmqxl",
+        "owner_node": "banking-mv-m06"
+      },
+      {
+        "transaction_id": "k8s-8cad4d6a-worker-destroy-w1-5",
+        "state": "COMMIT",
+        "owner": "gateway-55c67fbb57-nmqxl",
+        "owner_node": "banking-mv-m06"
+      },
+      {
+        "transaction_id": "k8s-8cad4d6a-worker-destroy-w3-5",
+        "state": "COMMIT",
+        "owner": "gateway-55c67fbb57-nmqxl",
+        "owner_node": "banking-mv-m06"
+      },
+      {
+        "transaction_id": "k8s-8cad4d6a-worker-destroy-w2-10",
+        "state": "COMMIT",
+        "owner": "gateway-55c67fbb57-gmz8z",
+        "owner_node": "banking-mv-m04"
+      },
+      {
+        "transaction_id": "k8s-8cad4d6a-worker-destroy-w4-5",
+        "state": "COMMIT",
+        "owner": "gateway-55c67fbb57-nmqxl",
+        "owner_node": "banking-mv-m06"
+      }
+    ],
+    "their_final_state": {
+      "k8s-8cad4d6a-worker-destroy-w0-8": {
+        "coordinator": "ABORTED",
+        "participants": {
+          "credit": "aborted",
+          "debit": "aborted"
+        }
+      },
+      "k8s-8cad4d6a-worker-destroy-w5-3": {
+        "coordinator": "COMMITTED",
+        "participants": {
+          "credit": "committed",
+          "debit": "committed"
+        }
+      },
+      "k8s-8cad4d6a-worker-destroy-w1-5": {
+        "coordinator": "COMMITTED",
+        "participants": {
+          "credit": "committed",
+          "debit": "committed"
+        }
+      },
+      "k8s-8cad4d6a-worker-destroy-w3-5": {
+        "coordinator": "COMMITTED",
+        "participants": {
+          "debit": "committed",
+          "credit": "committed"
+        }
+      },
+      "k8s-8cad4d6a-worker-destroy-w2-10": {
+        "coordinator": "COMMITTED",
+        "participants": {
+          "debit": "committed",
+          "credit": "committed"
+        }
+      },
+      "k8s-8cad4d6a-worker-destroy-w4-5": {
+        "coordinator": "COMMITTED",
+        "participants": {
+          "debit": "committed",
+          "credit": "committed"
+        }
+      }
+    },
+    "in_flight_transfers_resolved_atomically": true,
+    "seconds_until_redundancy_on_surviving_worker": 226.1,
+    "databases_on_surviving_worker": {
+      "shard-a-db": {
+        "leader": "shard-a-db-1",
+        "epoch": 14,
+        "synchronous_standby": "shard-a-db-0",
+        "members": {
+          "shard-a-db-0": "standby@banking-mv-m06",
+          "shard-a-db-1": "primary@banking-mv-m06",
+          "shard-a-db-2": "standby@banking-mv-m06"
+        }
+      },
+      "shard-b-db": {
+        "leader": "shard-b-db-1",
+        "epoch": 14,
+        "synchronous_standby": "shard-b-db-0",
+        "members": {
+          "shard-b-db-0": "standby@banking-mv-m06",
+          "shard-b-db-1": "primary@banking-mv-m06",
+          "shard-b-db-2": "standby@banking-mv-m06"
+        }
+      },
+      "coordinator-db": {
+        "leader": "coordinator-db-2",
+        "epoch": 13,
+        "synchronous_standby": "coordinator-db-0",
+        "members": {
+          "coordinator-db-0": "standby@banking-mv-m06",
+          "coordinator-db-1": "standby@banking-mv-m06",
+          "coordinator-db-2": "primary@banking-mv-m06"
+        }
+      }
+    },
+    "new_worker": "banking-mv-m07",
+    "seconds_until_cross_worker_redundancy_after_adding_it": 385.2,
+    "seconds_from_add_to_redundant": 705.5,
+    "backups_after_recovery": {
+      "db-backup@banking-mv-m07": true,
+      "db-backup-slot-2@banking-mv-m06": true
+    },
+    "writable_primary_samples": {
+      "per_cluster": {
+        "shard-a-db": {
+          "samples": 56,
+          "max_writable_primaries": 1,
+          "samples_without_primary": 0
+        },
+        "shard-b-db": {
+          "samples": 57,
+          "max_writable_primaries": 1,
+          "samples_without_primary": 1
+        },
+        "coordinator-db": {
+          "samples": 56,
+          "max_writable_primaries": 1,
+          "samples_without_primary": 0
+        }
+      },
+      "never_two_writable": true
+    },
+    "databases_after": {
+      "shard-a-db": {
+        "leader": "shard-a-db-1",
+        "epoch": 14,
+        "synchronous_standby": "shard-a-db-2",
+        "members": {
+          "shard-a-db-0": "standby@banking-mv-m06",
+          "shard-a-db-1": "primary@banking-mv-m06",
+          "shard-a-db-2": "standby@banking-mv-m07"
+        }
+      },
+      "shard-b-db": {
+        "leader": "shard-b-db-1",
+        "epoch": 14,
+        "synchronous_standby": "shard-b-db-2",
+        "members": {
+          "shard-b-db-0": "standby@banking-mv-m06",
+          "shard-b-db-1": "primary@banking-mv-m06",
+          "shard-b-db-2": "standby@banking-mv-m07"
+        }
+      },
+      "coordinator-db": {
+        "leader": "coordinator-db-2",
+        "epoch": 13,
+        "synchronous_standby": "coordinator-db-1",
+        "members": {
+          "coordinator-db-0": "standby@banking-mv-m06",
+          "coordinator-db-1": "standby@banking-mv-m07",
+          "coordinator-db-2": "primary@banking-mv-m06"
+        }
+      }
+    }
+  },
+  "load": [
+    {
+      "concurrency": 6,
+      "operations": 1671,
+      "throughput_per_second": 1.4,
+      "outcomes": {
+        "success": 1667,
+        "aborted": 4
+      },
+      "cross_shard_operations": 664,
+      "client_retries": 220,
+      "retry_reasons": {
+        "http_503:transaction_in_progress": 133,
+        "RemoteProtocolError": 26,
+        "http_503:coordinator_unavailable": 24,
+        "http_503:transaction_commit_pending": 17,
+        "ReadTimeout": 13,
+        "http_503:transaction_abort_pending": 3,
+        "http_503:shard_unavailable": 2,
+        "ReadError": 1
+      },
+      "seconds_with_errors": 132,
+      "seconds_with_errors_and_no_success": 128,
+      "longest_gap_between_acknowledgements": {
+        "seconds": 289.2,
+        "from_second": 16.3
+      },
+      "max_seconds_to_definitive_answer": 294.43,
+      "backend_replicas": {
+        "shard-a-app-6d6bb74b78-ngpbg": 258,
+        "shard-a-app-6d6bb74b78-57f74": 6,
+        "shard-b-app-75bd7fc86f-s8f7f": 7,
+        "coordinator": 664,
+        "shard-b-app-75bd7fc86f-2xmff": 251,
+        "shard-a-app-6d6bb74b78-2zgj7": 244,
+        "shard-b-app-75bd7fc86f-tvxj8": 241
+      },
+      "gateway_replicas": {
+        "gateway-55c67fbb57-nmqxl": 39,
+        "gateway-55c67fbb57-gmz8z": 21,
+        "gateway-55c67fbb57-g8tr6": 126,
+        "gateway-544d4d499c-d5l6d": 681,
+        "gateway-544d4d499c-7pzdl": 438,
+        "gateway-544d4d499c-7vjbp": 175,
+        "gateway-544d4d499c-m27fp": 191
+      }
+    }
+  ],
+  "invariants": {
+    "checks": {
+      "all_operations_resolved": true,
+      "no_unexpected_errors": true,
+      "ledger_matches_acknowledged_operations": true,
+      "repeated_requests_got_identical_answers": true,
+      "money_conserved": true,
+      "no_negative_balances": true,
+      "no_duplicate_effects": true,
+      "ledger_chain_intact": true,
+      "2pc_outcomes_match_client_answers": true,
+      "2pc_all_terminal": true,
+      "2pc_atomic_on_participants": true
+    },
+    "passed": true,
+    "distinct_requests": 1671,
+    "ledger_rows_verified": 2994,
+    "total_before": "5505.69",
+    "acknowledged_deposits": "19.44",
+    "acknowledged_withdrawals": "0",
+    "total_expected": "5525.13",
+    "total_actual": "5525.13",
+    "coordinator_states": {
+      "COMMITTED": 660,
+      "ABORTED": 4
+    },
+    "participant_rows": 1328,
+    "problems": {}
+  },
+  "databases_before": {
+    "shard-a-db": {
+      "leader": "shard-a-db-2",
+      "epoch": 13,
+      "synchronous_standby": "shard-a-db-1",
+      "members": {
+        "shard-a-db-0": "standby@banking-mv-m04",
+        "shard-a-db-1": "standby@banking-mv-m06",
+        "shard-a-db-2": "primary@banking-mv-m04"
+      }
+    },
+    "shard-b-db": {
+      "leader": "shard-b-db-2",
+      "epoch": 13,
+      "synchronous_standby": "shard-b-db-1",
+      "members": {
+        "shard-b-db-0": "standby@banking-mv-m04",
+        "shard-b-db-1": "standby@banking-mv-m06",
+        "shard-b-db-2": "primary@banking-mv-m04"
+      }
+    },
+    "coordinator-db": {
+      "leader": "coordinator-db-1",
+      "epoch": 12,
+      "synchronous_standby": "coordinator-db-2",
+      "members": {
+        "coordinator-db-0": "standby@banking-mv-m04",
+        "coordinator-db-1": "primary@banking-mv-m04",
+        "coordinator-db-2": "standby@banking-mv-m06"
+      }
+    }
+  }
+}

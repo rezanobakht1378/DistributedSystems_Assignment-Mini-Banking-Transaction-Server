@@ -1,3 +1,10 @@
+# Local database dumps, image archives and control-plane DR bundles (the
+# latter hold the cluster CA and service-account keys).
+backups/
+
+# Experiment logs are evidence for the report.
+!k8s-results/**/*.log
+
 # Created by https://www.toptal.com/developers/gitignore/api/django
 # Edit at https://www.toptal.com/developers/gitignore?templates=django
 

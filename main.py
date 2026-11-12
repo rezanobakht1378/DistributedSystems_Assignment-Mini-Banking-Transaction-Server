@@ -18,8 +18,18 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
-from sqlalchemy.exc import SQLAlchemyError
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    CollectorRegistry,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
+from anyio import to_thread
+from sqlalchemy.exc import InterfaceError, OperationalError, SQLAlchemyError
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from models import (
     MAX_BALANCE,
@@ -38,6 +48,20 @@ from shard_map import account_range_for_shard, shard_for_account
 load_dotenv()
 
 _REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}\Z")
+# Probes bypass the request-slot limit so an overloaded replica is reported
+# unready, not dead.
+_PROBE_PATHS = frozenset({"/health", "/livez", "/readyz", "/metrics"})
+# SQLSTATEs of a statement that was cancelled or rolled back on a healthy
+# server (lock/statement timeout, idle transaction timeout, deadlock,
+# serialization failure).
+_BUSY_SQLSTATES = frozenset({"55P03", "57014", "25P03", "40P01", "40001"})
+
+
+def _is_connection_failure(error: SQLAlchemyError) -> bool:
+    if isinstance(error, SQLAlchemyTimeoutError):
+        return False
+    pgcode = getattr(getattr(error, "orig", None), "pgcode", None)
+    return pgcode not in _BUSY_SQLSTATES
 
 
 @dataclass(frozen=True)
@@ -56,6 +80,8 @@ class Settings:
     shard_a_database_url: str | None = None
     shard_b_database_url: str | None = None
     shard_id: str | None = None
+    database_check_interval: float = 1.0
+    fail_readiness: bool = False
 
     @classmethod
     def from_environment(cls) -> Settings:
@@ -108,6 +134,10 @@ class Settings:
             shard_a_database_url=shard_a_database_url,
             shard_b_database_url=shard_b_database_url,
             shard_id=shard_id,
+            database_check_interval=float(
+                os.getenv("BANK_DB_CHECK_INTERVAL", "1")),
+            fail_readiness=os.getenv("BANK_FAIL_READINESS", "").lower()
+            in {"1", "true", "yes"},
         )
 
 
@@ -210,6 +240,46 @@ def _validate_shard_operation(
 def create_app(settings: Settings | None = None) -> FastAPI:
     config = settings or Settings.from_environment()
     logger = _configure_logger(config.log_file)
+    shard_label = config.shard_id or "unsharded"
+    registry = CollectorRegistry()
+    requests_total = Counter(
+        "bank_http_requests_total",
+        "Requests handled by this shard application replica.",
+        ["shard", "action", "result"],
+        registry=registry,
+    )
+    request_latency = Histogram(
+        "bank_http_request_duration_seconds",
+        "Request latency of this shard application replica.",
+        ["shard", "action"],
+        registry=registry,
+    )
+    database_up = Gauge(
+        "bank_db_up",
+        "1 when this replica reaches a writable primary of its shard database.",
+        ["shard"],
+        registry=registry,
+    )
+    app_ready = Gauge(
+        "bank_app_ready",
+        "1 when this replica passes its readiness check.",
+        ["shard"],
+        registry=registry,
+    )
+    participant_operations = Counter(
+        "bank_2pc_participant_operations_total",
+        "2PC participant calls handled by this replica.",
+        ["shard", "phase", "outcome"],
+        registry=registry,
+    )
+    participant_records = Gauge(
+        "bank_2pc_participant_transfers",
+        "Participant 2PC records stored in this shard database, by state.",
+        ["shard", "state"],
+        registry=registry,
+    )
+    database_up.labels(shard_label).set(0)
+    app_ready.labels(shard_label).set(0)
     if config.shard_a_database_url and config.shard_b_database_url:
         store = ShardedBankStore(
             config.shard_a_database_url,
@@ -227,12 +297,62 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "A PostgreSQL witness is required for primary/backup server configuration."
         )
 
-    @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    def initialize_store() -> None:
         if config.shard_id is None:
             store.initialize()
         else:
             store.initialize(account_range_for_shard(config.shard_id))
+
+    async def watch_database(app: FastAPI) -> None:
+        while True:
+            database_ok = False
+            try:
+                if not app.state.store_ready:
+                    await asyncio.to_thread(initialize_store)
+                    app.state.store_ready = True
+                    logger.info(
+                        "database_initialized shard=%s node=%s",
+                        shard_label,
+                        config.node_id,
+                    )
+                database_ok = (await asyncio.to_thread(store.status))["writable"]
+                if isinstance(store, BankStore) and config.shard_id is not None:
+                    counts = await asyncio.to_thread(store.prepared_transfer_counts)
+                    for state in ("prepared", "committed", "aborted"):
+                        participant_records.labels(shard_label, state).set(
+                            counts.get(state, 0))
+            except SQLAlchemyError as error:
+                database_ok = False
+                if app.state.database_ok or not app.state.store_ready:
+                    logger.warning(
+                        "database_unavailable shard=%s node=%s error=%s",
+                        shard_label,
+                        config.node_id,
+                        str(error).splitlines()[0],
+                    )
+            if database_ok != app.state.database_ok:
+                logger.warning(
+                    "database_state_changed shard=%s node=%s up=%s",
+                    shard_label,
+                    config.node_id,
+                    database_ok,
+                )
+            app.state.database_ok = database_ok
+            database_up.labels(shard_label).set(1 if database_ok else 0)
+            await asyncio.sleep(config.database_check_interval)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        # One worker thread per request slot: excess requests are rejected
+        # with server_busy instead of queueing behind blocked threads.
+        to_thread.current_default_thread_limiter().total_tokens = config.max_clients
+        database_monitor: asyncio.Task[None] | None = None
+        if witness is None:
+            database_monitor = asyncio.create_task(watch_database(app))
+        else:
+            initialize_store()
+            app.state.store_ready = True
+            app.state.database_ok = True
         monitor: asyncio.Task[None] | None = None
         if witness is not None:
             witness.initialize()
@@ -273,10 +393,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
-            if monitor is not None:
-                monitor.cancel()
+            for task in (monitor, database_monitor):
+                if task is None:
+                    continue
+                task.cancel()
                 try:
-                    await monitor
+                    await task
                 except asyncio.CancelledError:
                     pass
             if witness is not None:
@@ -298,6 +420,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.cluster_epoch = None
     app.state.write_lock = Lock()
     app.state.logger = logger
+    app.state.store_ready = False
+    app.state.database_ok = False
     request_slots = BoundedSemaphore(config.max_clients)
 
     @app.middleware("http")
@@ -309,34 +433,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request.state.account_id = request.query_params.get("account", "N/A")
         client_ip = request.client.host if request.client else "unknown"
         started = time.perf_counter()
+        result = "error"
+        if request.url.path in _PROBE_PATHS:
+            return await call_next(request)
         acquired = request_slots.acquire(blocking=False)
         try:
             if acquired:
-                try:
-                    response = await call_next(request)
-                except Exception:
-                    result = "error"
-                    raise
+                response = await call_next(request)
                 result = "success" if response.status_code < 400 else f"http_{response.status_code}"
             else:
                 response = JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={
                                         "status": "error", "error": "server_busy", "message": "Maximum concurrent request capacity is reached."})
                 result = "http_503"
             response.headers["X-Request-ID"] = request_id
+            response.headers["X-Served-By"] = config.node_id
             return response
         finally:
             if acquired:
                 request_slots.release()
-            latency_ms = (time.perf_counter() - started) * 1000
+            elapsed = time.perf_counter() - started
+            route = request.scope.get("route")
+            action = getattr(
+                request.state,
+                "action",
+                request.method + " " + getattr(route, "path", "unmatched"),
+            )
+            requests_total.labels(shard_label, action, result).inc()
+            request_latency.labels(shard_label, action).observe(elapsed)
             logger.info(
-                "request_id=%r client_ip=%r action=%r account=%r result=%r latency_ms=%.2f",
+                "request_id=%r client_ip=%r node=%r action=%r account=%r result=%r latency_ms=%.2f",
                 request_id,
                 client_ip,
-                getattr(request.state, "action",
-                        request.method + " " + request.url.path),
+                config.node_id,
+                action,
                 getattr(request.state, "account_id", "N/A"),
                 result,
-                latency_ms,
+                elapsed * 1000,
             )
 
     @app.exception_handler(HTTPException)
@@ -351,6 +483,51 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if request_id:
             response.headers["X-Request-ID"] = request_id
         return response
+
+    @app.exception_handler(OperationalError)
+    @app.exception_handler(InterfaceError)
+    @app.exception_handler(SQLAlchemyTimeoutError)
+    async def database_error_handler(request: Request, error: SQLAlchemyError):
+        outage = _is_connection_failure(error)
+        if outage:
+            app.state.database_ok = False
+            database_up.labels(shard_label).set(0)
+        logger.error(
+            "database_%s request_id=%s shard=%s node=%s error=%s",
+            "error" if outage else "busy",
+            getattr(request.state, "request_id", None),
+            shard_label,
+            config.node_id,
+            str(error).splitlines()[0],
+        )
+        response = JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "status": "error",
+                "error": "database_unavailable" if outage else "database_busy",
+                "message": (
+                    "The shard database is unavailable; retry with the same "
+                    "X-Request-ID to obtain the operation's single result."
+                    if outage else
+                    "The operation timed out waiting for a lock or connection and "
+                    "was rolled back; retry with the same X-Request-ID."
+                ),
+            },
+        )
+        request_id = getattr(request.state, "request_id", None)
+        if request_id:
+            response.headers["X-Request-ID"] = request_id
+        return response
+
+    def require_database() -> None:
+        if not app.state.store_ready or not app.state.database_ok:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "database_unavailable",
+                    "message": "The shard database is not reachable as a writable primary.",
+                },
+            )
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, error: RequestValidationError):
@@ -376,6 +553,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def execute_operation(request: Request, operation: Operation) -> dict[str, Any]:
         request.state.account_id = operation.account
         _validate_shard_operation(config.shard_id, operation)
+        require_database()
         if request.app.state.role != "primary":
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -600,34 +778,53 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return local_response
 
     @app.get("/health")
-    def health(request: Request):
-        owns_leadership = witness is None or witness.owns_lock()
+    @app.get("/readyz")
+    async def health(request: Request):
+        owns_leadership = witness is None or await asyncio.to_thread(witness.owns_lock)
         if not owns_leadership and request.app.state.role == "primary":
             request.app.state.role = "standby"
             request.app.state.peer_url = None
             request.app.state.write_locked = True
             request.app.state.needs_sync = True
+        database = "up" if request.app.state.database_ok else "down"
         if (
             request.app.state.role != "primary"
             or request.app.state.write_locked
             or request.app.state.needs_sync
             or not owns_leadership
+            or not request.app.state.store_ready
+            or not request.app.state.database_ok
+            or config.fail_readiness
         ):
+            app_ready.labels(shard_label).set(0)
             return JSONResponse(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 content={
                     "status": "unavailable",
                     "role": request.app.state.role,
                     "node_id": config.node_id,
+                    "database": database,
                 },
             )
+        app_ready.labels(shard_label).set(1)
         return {
             "status": "success",
             "role": request.app.state.role,
             "node_id": config.node_id,
             "cluster_id": config.cluster_id if witness is not None else None,
             "epoch": request.app.state.cluster_epoch,
+            "database": database,
         }
+
+    @app.get("/livez")
+    async def liveness():
+        # Deliberately independent of the database: a database outage must
+        # make replicas unready, not get them restarted in a loop.
+        return {"status": "alive", "node_id": config.node_id}
+
+    @app.get("/metrics")
+    async def metrics():
+        return Response(generate_latest(registry), media_type=CONTENT_TYPE_LATEST)
 
     @app.get("/internal/snapshot")
     def snapshot(request: Request):
@@ -836,10 +1033,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
         )
 
+    def log_participant(
+        request: Request,
+        body: CrossShardParticipantRequest,
+        phase: str,
+        outcome: str,
+    ) -> None:
+        request.state.action = f"2pc_{phase}"
+        request.state.account_id = body.source_account
+        participant_operations.labels(shard_label, phase, outcome).inc()
+        logger.info(
+            "2pc_participant transaction_id=%s shard=%s node=%s phase=%s outcome=%s",
+            body.transaction_id,
+            shard_label,
+            config.node_id,
+            phase,
+            outcome,
+        )
+
     @app.post("/internal/2pc/prepare")
-    def prepare_cross_shard_transfer(body: CrossShardParticipantRequest):
+    def prepare_cross_shard_transfer(
+        body: CrossShardParticipantRequest,
+        request: Request,
+    ):
         participant_store, role = cross_shard_participant(body)
-        return participant_store.prepare_cross_shard_transfer(
+        require_database()
+        result = participant_store.prepare_cross_shard_transfer(
             body.transaction_id,
             body.source_account,
             body.destination_account,
@@ -847,18 +1066,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             role,
             body.client_ip,
         )
+        log_participant(request, body, "prepare", f"vote_{result['vote'].lower()}")
+        return result
 
     @app.post("/internal/2pc/commit")
-    def commit_cross_shard_transfer(body: CrossShardParticipantRequest):
+    def commit_cross_shard_transfer(
+        body: CrossShardParticipantRequest,
+        request: Request,
+    ):
         participant_store, _ = cross_shard_participant(body)
-        return participant_store.commit_cross_shard_transfer(
+        require_database()
+        result = participant_store.commit_cross_shard_transfer(
             body.transaction_id
         )
+        log_participant(request, body, "commit", "committed")
+        return result
 
     @app.post("/internal/2pc/abort")
-    def abort_cross_shard_transfer(body: CrossShardParticipantRequest):
+    def abort_cross_shard_transfer(
+        body: CrossShardParticipantRequest,
+        request: Request,
+    ):
         participant_store, role = cross_shard_participant(body)
-        return participant_store.abort_cross_shard_transfer(
+        require_database()
+        result = participant_store.abort_cross_shard_transfer(
             body.transaction_id,
             body.source_account,
             body.destination_account,
@@ -866,6 +1097,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             role,
             body.client_ip,
         )
+        log_participant(request, body, "abort", "aborted")
+        return result
 
     @app.get("/internal/2pc/{transaction_id}")
     def cross_shard_transfer_status(
@@ -1106,5 +1339,10 @@ app = create_app(settings)
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host=os.getenv("BANK_HOST", "0.0.0.0"),
-                port=int(os.getenv("BANK_PORT", "8000")))
+    uvicorn.run(
+        app,
+        host=os.getenv("BANK_HOST", "0.0.0.0"),
+        port=int(os.getenv("BANK_PORT", "8000")),
+        timeout_graceful_shutdown=int(
+            os.getenv("BANK_GRACEFUL_SHUTDOWN_SECONDS", "25")),
+    )

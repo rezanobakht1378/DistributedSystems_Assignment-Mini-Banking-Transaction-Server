@@ -1,0 +1,231 @@
+# Enforced only by a NetworkPolicy-capable CNI (minikube: --cni=calico).
+#
+#   * everything is denied unless allowed below (ingress)
+#   * the gateway is the only public entry point
+#   * shard applications accept traffic only from the gateway (and Prometheus)
+#   * each database accepts traffic only from its own clients, its peer
+#     (replication), the db-controller and the backup job
+#   * shard applications may only connect to DNS and their own shard database
+#     (egress), so shard-a code cannot touch shard-b or coordinator data
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway-public-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: gateway
+  policyTypes: ["Ingress"]
+  ingress:
+    - ports:
+        - {protocol: TCP, port: 8000}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shard-app-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: shard-app
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - {protocol: TCP, port: 8000}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shard-a-db-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: shard-a-db
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: shard-a-app
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: shard-a-db
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: db-controller
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: db-backup
+      ports:
+        - {protocol: TCP, port: 5432}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shard-b-db-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: shard-b-db
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: shard-b-app
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: shard-b-db
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: db-controller
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: db-backup
+      ports:
+        - {protocol: TCP, port: 5432}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: coordinator-db-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: coordinator-db
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: coordinator-db
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: db-controller
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: db-backup
+      ports:
+        - {protocol: TCP, port: 5432}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: db-controller-metrics-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: db-controller
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - {protocol: TCP, port: 9100}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shard-a-app-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: shard-a-app
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: shard-a-db
+      ports:
+        - {protocol: TCP, port: 5432}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shard-b-app-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: shard-b-app
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: shard-b-db
+      ports:
+        - {protocol: TCP, port: 5432}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: gateway
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: shard-app
+      ports:
+        - {protocol: TCP, port: 8000}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: coordinator-db
+      ports:
+        - {protocol: TCP, port: 5432}

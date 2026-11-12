@@ -1,0 +1,76 @@
+# 3 members over 2 workers: the topology spread (maxSkew 1) puts 2 on one
+# worker and 1 on the other, and the Pod affinity pulls standbys next to the
+# primary (the Pod labelled db-role=primary), so the pair is primary + local
+# standby and the single member is the remote standby. Tainted nodes (the
+# control plane, unreachable workers) do not count as a placement domain.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: shard-a-db
+spec:
+  template:
+    spec:
+      affinity:
+        podAntiAffinity: null
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels: {app.kubernetes.io/name: shard-a-db, db-role: primary}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          nodeTaintsPolicy: Honor
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: shard-a-db}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: shard-b-db
+spec:
+  template:
+    spec:
+      affinity:
+        podAntiAffinity: null
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels: {app.kubernetes.io/name: shard-b-db, db-role: primary}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          nodeTaintsPolicy: Honor
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: shard-b-db}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: coordinator-db
+spec:
+  template:
+    spec:
+      affinity:
+        podAntiAffinity: null
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels: {app.kubernetes.io/name: coordinator-db, db-role: primary}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          nodeTaintsPolicy: Honor
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: coordinator-db}

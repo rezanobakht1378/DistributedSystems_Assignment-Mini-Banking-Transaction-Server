@@ -1,0 +1,76 @@
+# Watches the three database clusters, routes each -rw Service to the Pod
+# named in its leader Lease, promotes and fails over. Two instances on
+# different nodes; only the holder of the db-controller Lease acts, so losing
+# a node costs one Lease expiry instead of a Pod eviction. Every database
+# leader change is a compare-and-swap on that cluster's Lease anyway.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db-controller
+  labels:
+    app.kubernetes.io/name: db-controller
+    app.kubernetes.io/component: db-controller
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: db-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: db-controller
+        app.kubernetes.io/component: db-controller
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: db-controller
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: db-controller
+                matchLabelKeys: ["pod-template-hash"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: mini-banking-app
+          imagePullPolicy: IfNotPresent
+          command: ["python", "db_controller.py", "run"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef: {fieldPath: metadata.name}
+            - name: BANK_DB_CLUSTERS
+              value: shard-a-db,shard-b-db,coordinator-db
+            - name: BANK_DB_FAILOVER_AFTER_SECONDS
+              value: "15"
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: {name: banking-db-credentials, key: superuser-name}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: banking-db-credentials, key: superuser-password}
+          ports:
+            - name: metrics
+              containerPort: 9100
+          livenessProbe:
+            tcpSocket: {port: metrics}
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 300m, memory: 192Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

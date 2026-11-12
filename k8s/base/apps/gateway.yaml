@@ -1,0 +1,156 @@
+# Shard-aware gateway and 2PC coordinator: the only external entry point.
+# Any number of gateway replicas can run: each coordinated transfer is owned
+# through an advisory lock in the coordinator database, and every replica's
+# recovery loop resumes transfers whose owner Pod has died.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/component: gateway
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: gateway
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      nodePort: 30080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/component: gateway
+spec:
+  revisionHistoryLimit: 5
+  progressDeadlineSeconds: 120
+  minReadySeconds: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gateway
+        app.kubernetes.io/component: gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: banking-app
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          matchLabelKeys: ["pod-template-hash"]
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway
+      containers:
+        - name: gateway
+          image: mini-banking-app
+          imagePullPolicy: IfNotPresent
+          command: ["python", "gateway.py"]
+          envFrom:
+            - configMapRef:
+                name: banking-config
+          env:
+            - name: BANK_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: BANK_APP_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: banking-db-credentials, key: app-password}
+            - name: BANK_COORDINATOR_DATABASE_URL
+              value: postgresql://bank_app:$(BANK_APP_PASSWORD)@coordinator-db-rw:5432/banking_coordinator?target_session_attrs=read-write
+          ports:
+            - name: http
+              containerPort: 8000
+          startupProbe:
+            httpGet: {path: /livez, port: http}
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: {path: /livez, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 3
+            timeoutSeconds: 2
+            failureThreshold: 2
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "8"]
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: shard-map
+              mountPath: /etc/banking
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: shard-map
+          configMap:
+            name: banking-shard-map
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gateway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gateway
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 90
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gateway

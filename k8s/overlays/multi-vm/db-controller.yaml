@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db-controller
+spec:
+  # One instance per worker. Replace one at a time so the required
+  # anti-affinity never waits for a slot that is still occupied.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  template:
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution: null
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: db-controller
+      containers:
+        - name: controller
+          env:
+            - name: BANK_DB_PLACEMENT
+              value: spread
+            - name: BANK_DB_REBUILD_UNREACHABLE_AFTER_SECONDS
+              value: "20"

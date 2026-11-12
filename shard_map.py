@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,7 +9,9 @@ from pathlib import Path
 from fastapi import HTTPException, status
 
 _ACCOUNT_ID_PATTERN = re.compile(r"A[0-9]{4}\Z")
-_DEFAULT_MAP_PATH = Path(__file__).with_name("shard-map.json")
+_DEFAULT_MAP_PATH = Path(
+    os.getenv("BANK_SHARD_MAP_PATH") or Path(__file__).with_name("shard-map.json")
+)
 
 
 @dataclass(frozen=True)

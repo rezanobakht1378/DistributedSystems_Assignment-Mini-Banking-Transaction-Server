@@ -1,0 +1,473 @@
+{
+  "started_at": "2026-11-12T11:44:49.354298+00:00",
+  "gateway": "http://127.0.0.1:7242",
+  "session": "ea1e8a17",
+  "passed": true,
+  "results": {
+    "autoscale": {
+      "passed": true,
+      "details": {
+        "passed": true,
+        "min_replicas": {
+          "gateway": 2,
+          "shard-a-app": 2,
+          "shard-b-app": 2
+        },
+        "peak_replicas": {
+          "gateway": 4,
+          "shard-a-app": 6,
+          "shard-b-app": 6
+        },
+        "seconds_until_scale_up": 100,
+        "seconds_until_back_to_min_after_burst": null,
+        "timeline": [
+          {
+            "t": 0,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 5,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 11,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 16,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 21,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 26,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 32,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 37,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 42,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 47,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 52,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 58,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 63,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 68,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 73,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 79,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 84,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 89,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 95,
+            "gateway": 2,
+            "shard-a-app": 2,
+            "shard-b-app": 2
+          },
+          {
+            "t": 100,
+            "gateway": 4,
+            "shard-a-app": 4,
+            "shard-b-app": 4
+          },
+          {
+            "t": 105,
+            "gateway": 4,
+            "shard-a-app": 4,
+            "shard-b-app": 4
+          },
+          {
+            "t": 111,
+            "gateway": 4,
+            "shard-a-app": 4,
+            "shard-b-app": 4
+          },
+          {
+            "t": 116,
+            "gateway": 4,
+            "shard-a-app": 4,
+            "shard-b-app": 4
+          },
+          {
+            "t": 122,
+            "gateway": 4,
+            "shard-a-app": 4,
+            "shard-b-app": 4
+          },
+          {
+            "t": 127,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 132,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 138,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 143,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 148,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 152,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 162,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 173,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 183,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 193,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 203,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 214,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 224,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 234,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 244,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 254,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 265,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 275,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 285,
+            "gateway": 4,
+            "shard-a-app": 6,
+            "shard-b-app": 6
+          },
+          {
+            "t": 295,
+            "gateway": 4,
+            "shard-a-app": 5,
+            "shard-b-app": 5
+          },
+          {
+            "t": 306,
+            "gateway": 4,
+            "shard-a-app": 5,
+            "shard-b-app": 5
+          },
+          {
+            "t": 316,
+            "gateway": 4,
+            "shard-a-app": 5,
+            "shard-b-app": 5
+          },
+          {
+            "t": 326,
+            "gateway": 4,
+            "shard-a-app": 4,
+            "shard-b-app": 4
+          },
+          {
+            "t": 336,
+            "gateway": 4,
+            "shard-a-app": 4,
+            "shard-b-app": 4
+          },
+          {
+            "t": 346,
+            "gateway": 4,
+            "shard-a-app": 4,
+            "shard-b-app": 4
+          },
+          {
+            "t": 357,
+            "gateway": 4,
+            "shard-a-app": 4,
+            "shard-b-app": 4
+          },
+          {
+            "t": 367,
+            "gateway": 4,
+            "shard-a-app": 4,
+            "shard-b-app": 4
+          },
+          {
+            "t": 377,
+            "gateway": 4,
+            "shard-a-app": 4,
+            "shard-b-app": 4
+          },
+          {
+            "t": 387,
+            "gateway": 4,
+            "shard-a-app": 4,
+            "shard-b-app": 4
+          },
+          {
+            "t": 398,
+            "gateway": 4,
+            "shard-a-app": 4,
+            "shard-b-app": 4
+          },
+          {
+            "t": 408,
+            "gateway": 4,
+            "shard-a-app": 4,
+            "shard-b-app": 4
+          },
+          {
+            "t": 418,
+            "gateway": 4,
+            "shard-a-app": 4,
+            "shard-b-app": 4
+          },
+          {
+            "t": 428,
+            "gateway": 4,
+            "shard-a-app": 4,
+            "shard-b-app": 4
+          },
+          {
+            "t": 438,
+            "gateway": 4,
+            "shard-a-app": 4,
+            "shard-b-app": 4
+          },
+          {
+            "t": 449,
+            "gateway": 4,
+            "shard-a-app": 4,
+            "shard-b-app": 4
+          }
+        ]
+      },
+      "load": [
+        {
+          "concurrency": 2,
+          "operations": 3806,
+          "throughput_per_second": 8.1,
+          "outcomes": {
+            "success": 3806
+          },
+          "cross_shard_operations": 1504,
+          "client_retries": 0,
+          "retry_reasons": {},
+          "seconds_with_errors": 0,
+          "seconds_with_errors_and_no_success": 0,
+          "max_seconds_to_definitive_answer": 19.07,
+          "backend_replicas": {
+            "shard-b-app-7f4476647b-pmrsz": 241,
+            "shard-a-app-65d6fc459b-qtgdn": 263,
+            "shard-a-app-65d6fc459b-2lvf9": 271,
+            "coordinator": 1504,
+            "shard-b-app-7f4476647b-hfbtc": 244,
+            "shard-a-app-65d6fc459b-znkd8": 241,
+            "shard-a-app-65d6fc459b-cwnsh": 94,
+            "shard-b-app-7f4476647b-n4qph": 237,
+            "shard-b-app-7f4476647b-qpllx": 95,
+            "shard-b-app-7f4476647b-48lb2": 75,
+            "shard-b-app-7f4476647b-gqdtk": 234,
+            "shard-a-app-65d6fc459b-48xkd": 230,
+            "shard-a-app-65d6fc459b-xsmtc": 77
+          },
+          "gateway_replicas": {
+            "gateway-7f97cbc6fc-pg62f": 1905,
+            "gateway-7f97cbc6fc-cflft": 1901
+          }
+        },
+        {
+          "concurrency": 48,
+          "operations": 2639,
+          "throughput_per_second": 17.4,
+          "outcomes": {
+            "success": 2639
+          },
+          "cross_shard_operations": 412,
+          "client_retries": 0,
+          "retry_reasons": {},
+          "seconds_with_errors": 0,
+          "seconds_with_errors_and_no_success": 0,
+          "max_seconds_to_definitive_answer": 19.59,
+          "backend_replicas": {
+            "shard-b-app-7f4476647b-pmrsz": 482,
+            "shard-a-app-65d6fc459b-qtgdn": 505,
+            "shard-a-app-65d6fc459b-2lvf9": 495,
+            "shard-b-app-7f4476647b-hfbtc": 460,
+            "coordinator": 412,
+            "shard-a-app-65d6fc459b-znkd8": 59,
+            "shard-b-app-7f4476647b-gqdtk": 47,
+            "shard-b-app-7f4476647b-n4qph": 47,
+            "shard-a-app-65d6fc459b-48xkd": 51,
+            "shard-a-app-65d6fc459b-cwnsh": 25,
+            "shard-a-app-65d6fc459b-xsmtc": 20,
+            "shard-b-app-7f4476647b-48lb2": 17,
+            "shard-b-app-7f4476647b-qpllx": 19
+          },
+          "gateway_replicas": {
+            "gateway-7f97cbc6fc-pg62f": 1291,
+            "gateway-7f97cbc6fc-cflft": 1348
+          }
+        }
+      ],
+      "invariants": {
+        "checks": {
+          "all_operations_resolved": true,
+          "no_unexpected_errors": true,
+          "money_conserved": true,
+          "no_negative_balances": true,
+          "no_duplicate_effects": true,
+          "ledger_chain_intact": true,
+          "2pc_outcomes_match_client_answers": true,
+          "2pc_all_terminal": true,
+          "2pc_atomic_on_participants": true
+        },
+        "passed": true,
+        "total_before": "5312.73",
+        "acknowledged_deposits": "73.46",
+        "total_expected": "5386.19",
+        "total_actual": "5386.19",
+        "coordinator_states": {
+          "COMMITTED": 1916
+        },
+        "participant_rows": 3832,
+        "problems": {}
+      }
+    }
+  }
+}

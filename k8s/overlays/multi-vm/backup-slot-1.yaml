@@ -1,0 +1,20 @@
+# The base backup CronJob runs on the worker labelled backup-slot=1 and keeps
+# its sets on that worker's disk.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db-backups
+spec:
+  storageClassName: local-path
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-backup
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          nodeSelector:
+            banking.local/backup-slot: "1"

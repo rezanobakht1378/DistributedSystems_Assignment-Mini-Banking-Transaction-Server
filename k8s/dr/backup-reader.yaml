@@ -1,0 +1,33 @@
+# Temporary Pod that mounts the backup volume so backup sets can be copied
+# off the cluster with `kubectl cp` (used by scripts/k8s_dr.py; not part of
+# the base deployment). It has no network access to the databases.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: backup-reader
+  namespace: banking
+  labels:
+    app.kubernetes.io/name: backup-reader
+spec:
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    fsGroup: 999
+  containers:
+    - name: reader
+      image: postgres:16
+      imagePullPolicy: IfNotPresent
+      command: ["sleep", "3600"]
+      resources:
+        requests: {cpu: 10m, memory: 16Mi}
+        limits: {cpu: 200m, memory: 64Mi}
+      volumeMounts:
+        - name: backups
+          mountPath: /backups
+          readOnly: true
+  volumes:
+    - name: backups
+      persistentVolumeClaim:
+        claimName: db-backups

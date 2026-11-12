@@ -1,0 +1,92 @@
+{
+  "started_at": "2026-11-12T10:50:38.084977+00:00",
+  "gateway": "http://127.0.0.1:7242",
+  "session": "e2902f89",
+  "passed": true,
+  "results": {
+    "network-policy": {
+      "passed": true,
+      "observed": {
+        "deploy/shard-a-app": {
+          "shard-a-db-rw:5432": "allowed",
+          "shard-b-db-rw:5432": "blocked",
+          "coordinator-db-rw:5432": "blocked",
+          "shard-b-app:8000": "blocked"
+        },
+        "deploy/shard-b-app": {
+          "shard-b-db-rw:5432": "allowed",
+          "shard-a-db-rw:5432": "blocked",
+          "coordinator-db-rw:5432": "blocked",
+          "shard-a-app:8000": "blocked"
+        },
+        "deploy/gateway": {
+          "shard-a-app:8000": "allowed",
+          "shard-b-app:8000": "allowed",
+          "coordinator-db-rw:5432": "allowed",
+          "shard-a-db-rw:5432": "blocked",
+          "shard-b-db-rw:5432": "blocked"
+        },
+        "deploy/db-controller": {
+          "shard-a-db-rw:5432": "allowed",
+          "shard-a-app:8000": "blocked",
+          "gateway:8000": "allowed"
+        }
+      }
+    },
+    "baseline": {
+      "passed": true,
+      "details": {},
+      "load": [
+        {
+          "concurrency": 8,
+          "operations": 435,
+          "throughput_per_second": 14.0,
+          "outcomes": {
+            "success": 435
+          },
+          "cross_shard_operations": 181,
+          "client_retries": 0,
+          "retry_reasons": {},
+          "seconds_with_errors": 0,
+          "seconds_with_errors_and_no_success": 0,
+          "max_seconds_to_definitive_answer": 2.04,
+          "backend_replicas": {
+            "shard-b-app-69dd65b49-fc24s": 62,
+            "shard-a-app-f6c76d977-8bmpr": 57,
+            "shard-a-app-f6c76d977-x9tqz": 67,
+            "shard-b-app-69dd65b49-6bvrg": 68,
+            "coordinator": 181
+          },
+          "gateway_replicas": {
+            "gateway-694848bdf8-frjxt": 122,
+            "gateway-694848bdf8-2nxtl": 132,
+            "?": 181
+          }
+        }
+      ],
+      "invariants": {
+        "checks": {
+          "all_operations_resolved": true,
+          "no_unexpected_errors": true,
+          "money_conserved": true,
+          "no_negative_balances": true,
+          "no_duplicate_effects": true,
+          "ledger_chain_intact": true,
+          "2pc_outcomes_match_client_answers": true,
+          "2pc_all_terminal": true,
+          "2pc_atomic_on_participants": true
+        },
+        "passed": true,
+        "total_before": "5175.5",
+        "acknowledged_deposits": "4.19",
+        "total_expected": "5179.69",
+        "total_actual": "5179.69",
+        "coordinator_states": {
+          "COMMITTED": 181
+        },
+        "participant_rows": 362,
+        "problems": {}
+      }
+    }
+  }
+}

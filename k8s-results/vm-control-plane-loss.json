@@ -1,0 +1,153 @@
+{
+  "scenario": "control-plane-loss",
+  "started_at": "2026-11-12T22:40:44.374526+00:00",
+  "passed": true,
+  "details": {
+    "passed": true,
+    "destroyed_control_plane": "banking-mv",
+    "control_plane_backup": {
+      "taken_at": "20261112T223315Z",
+      "host_copy": "C:\\Users\\Nobakht\\Desktop\\DistributedSystems_Assignment-1-Mini-Banking-Transaction-Server\\backups\\control-plane\\20261112T223315Z",
+      "worker_copies": "banking-mv-m02, banking-mv-m03"
+    },
+    "api_unavailable_after_destruction": true,
+    "requests_answered_while_control_plane_was_gone": 2160,
+    "seconds_without_control_plane": 356.1,
+    "restored_on": "banking-mv-m02",
+    "seconds_to_restore_api": 64.2,
+    "scheduling_after_restore": {
+      "passed": true,
+      "deleted_pod": "shard-a-app-5cdcf6986d-m9scz",
+      "seconds_until_replacement_ready": 38.3,
+      "new_job": "scheduling-check-1794523140",
+      "job_completed_on": "banking-mv-m03"
+    },
+    "seconds_until_databases_redundant_after_restore": 42.5,
+    "nodes_after": "NAME             STATUS   ROLES                           AGE   VERSION   INTERNAL-IP    EXTERNAL-IP   OS-IMAGE                         KERNEL-VERSION                              CONTAINER-RUNTIME\nbanking-mv-m02   Ready    control-plane-restored,worker   12m   v1.37.0   192.168.67.3   <none>        Debian GNU/Linux 12 (bookworm)   6.18.58.1-microsoft-standard-WSL2 (amd64)   containerd://2.3.4\nbanking-mv-m03   Ready    worker                          12m   v1.37.0   192.168.67.4   <none>        Debian GNU/Linux 12 (bookworm)   6.18.58.1-microsoft-standard-WSL2 (amd64)   containerd://2.3.4",
+    "databases_after": {
+      "shard-a-db": {
+        "leader": "shard-a-db-0",
+        "epoch": 0,
+        "synchronous_standby": "shard-a-db-2",
+        "members": {
+          "shard-a-db-0": "primary@banking-mv-m02",
+          "shard-a-db-1": "standby@banking-mv-m02",
+          "shard-a-db-2": "standby@banking-mv-m03"
+        }
+      },
+      "shard-b-db": {
+        "leader": "shard-b-db-0",
+        "epoch": 0,
+        "synchronous_standby": "shard-b-db-1",
+        "members": {
+          "shard-b-db-0": "primary@banking-mv-m02",
+          "shard-b-db-1": "standby@banking-mv-m03",
+          "shard-b-db-2": "standby@banking-mv-m02"
+        }
+      },
+      "coordinator-db": {
+        "leader": "coordinator-db-0",
+        "epoch": 0,
+        "synchronous_standby": "coordinator-db-2",
+        "members": {
+          "coordinator-db-0": "primary@banking-mv-m02",
+          "coordinator-db-1": "standby@banking-mv-m02",
+          "coordinator-db-2": "standby@banking-mv-m03"
+        }
+      }
+    }
+  },
+  "load": [
+    {
+      "concurrency": 6,
+      "operations": 4001,
+      "throughput_per_second": 9.8,
+      "outcomes": {
+        "success": 4001
+      },
+      "cross_shard_operations": 1576,
+      "client_retries": 0,
+      "retry_reasons": {},
+      "seconds_with_errors": 0,
+      "seconds_with_errors_and_no_success": 0,
+      "longest_gap_between_acknowledgements": {
+        "seconds": 4.3,
+        "from_second": 57.1
+      },
+      "max_seconds_to_definitive_answer": 7.18,
+      "backend_replicas": {
+        "shard-b-app-6b96769ffc-xcgcd": 591,
+        "shard-b-app-6b96769ffc-wnpls": 585,
+        "shard-a-app-5cdcf6986d-rfc5k": 644,
+        "coordinator": 1576,
+        "shard-a-app-5cdcf6986d-m9scz": 535,
+        "shard-a-app-5cdcf6986d-87swb": 62,
+        "shard-b-app-6b96769ffc-z4cfj": 8
+      },
+      "gateway_replicas": {
+        "gateway-5d8fcc468f-w5jq9": 1893,
+        "gateway-5d8fcc468f-vwh62": 2108
+      }
+    }
+  ],
+  "invariants": {
+    "checks": {
+      "all_operations_resolved": true,
+      "no_unexpected_errors": true,
+      "ledger_matches_acknowledged_operations": true,
+      "repeated_requests_got_identical_answers": true,
+      "money_conserved": true,
+      "no_negative_balances": true,
+      "no_duplicate_effects": true,
+      "ledger_chain_intact": true,
+      "2pc_outcomes_match_client_answers": true,
+      "2pc_all_terminal": true,
+      "2pc_atomic_on_participants": true
+    },
+    "passed": true,
+    "distinct_requests": 4001,
+    "ledger_rows_verified": 7176,
+    "total_before": "5350.0",
+    "acknowledged_deposits": "45.74",
+    "acknowledged_withdrawals": "0",
+    "total_expected": "5395.74",
+    "total_actual": "5395.74",
+    "coordinator_states": {
+      "COMMITTED": 1576
+    },
+    "participant_rows": 3152,
+    "problems": {}
+  },
+  "databases_before": {
+    "shard-a-db": {
+      "leader": "shard-a-db-0",
+      "epoch": 0,
+      "synchronous_standby": "shard-a-db-2",
+      "members": {
+        "shard-a-db-0": "primary@banking-mv-m02",
+        "shard-a-db-1": "standby@banking-mv-m02",
+        "shard-a-db-2": "standby@banking-mv-m03"
+      }
+    },
+    "shard-b-db": {
+      "leader": "shard-b-db-0",
+      "epoch": 0,
+      "synchronous_standby": "shard-b-db-1",
+      "members": {
+        "shard-b-db-0": "primary@banking-mv-m02",
+        "shard-b-db-1": "standby@banking-mv-m03",
+        "shard-b-db-2": "standby@banking-mv-m02"
+      }
+    },
+    "coordinator-db": {
+      "leader": "coordinator-db-0",
+      "epoch": 0,
+      "synchronous_standby": "coordinator-db-2",
+      "members": {
+        "coordinator-db-0": "primary@banking-mv-m02",
+        "coordinator-db-1": "standby@banking-mv-m02",
+        "coordinator-db-2": "standby@banking-mv-m03"
+      }
+    }
+  }
+}

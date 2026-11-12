@@ -1,0 +1,48 @@
+# Application configuration shared by the gateway and the shard replicas.
+# Both read the same shard map from this ConfigMap, so routing and shard
+# ownership checks can never disagree inside the cluster. Changing the ranges
+# is a resharding operation (data must move first); do not edit it in place.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: banking-config
+data:
+  BANK_HOST: "0.0.0.0"
+  BANK_PORT: "8000"
+  BANK_GATEWAY_PORT: "8000"
+  # Request slots == worker threads per shard replica; a few more than the
+  # DB pool so requests wait briefly for a connection instead of queueing.
+  BANK_MAX_CLIENTS: "24"
+  BANK_SHARD_MAP_PATH: /etc/banking/shard-map.json
+  BANK_LOG_FILE: /tmp/banking_server.log
+  BANK_DB_POOL_SIZE: "10"
+  BANK_DB_MAX_OVERFLOW: "6"
+  BANK_DB_POOL_TIMEOUT: "3"
+  BANK_DB_CONNECT_TIMEOUT: "3"
+  BANK_DB_LOCK_TIMEOUT_MS: "3000"
+  BANK_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: "10000"
+  BANK_DB_TCP_USER_TIMEOUT_MS: "10000"
+  BANK_DB_CHECK_INTERVAL: "1"
+  BANK_UPSTREAM_TIMEOUT: "5"
+  BANK_DISCOVERY_CACHE_SECONDS: "1"
+  BANK_2PC_LOCK_WAIT_SECONDS: "5"
+  BANK_GATEWAY_THREADS: "64"
+  BANK_GRACEFUL_SHUTDOWN_SECONDS: "25"
+  BANK_EXPERIMENT_PAUSE_AFTER_PREPARE_SECONDS: "0"
+  BANK_EXPERIMENT_PAUSE_AFTER_COMMIT_SECONDS: "0"
+  BANK_SHARD_A_SERVICE: shard-a-app:8000
+  BANK_SHARD_B_SERVICE: shard-b-app:8000
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: banking-shard-map
+data:
+  shard-map.json: |
+    {
+      "version": 1,
+      "shards": [
+        {"id": "shard-a", "range_start": "A0001", "range_end": "A1000"},
+        {"id": "shard-b", "range_start": "A1001", "range_end": "A2000"}
+      ]
+    }

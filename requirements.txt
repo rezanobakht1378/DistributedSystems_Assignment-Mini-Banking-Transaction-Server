@@ -33,6 +33,7 @@ opentelemetry-exporter-otlp-proto-http==1.45.1
 opentelemetry-proto==1.45.1
 opentelemetry-sdk==1.45.1
 opentelemetry-semantic-conventions==0.66b1
+prometheus-client==0.26.0
 protobuf==7.36.2
 psycopg2-binary==2.9.13
 pydantic==2.14.1

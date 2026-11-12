@@ -1,0 +1,64 @@
+# A second, independent backup on the other worker (backup-slot=2), offset by
+# 7 minutes. Both take the same 2PC backup barrier, so they never overlap and
+# each set is a consistent cut on its own.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db-backups-slot-2
+spec:
+  storageClassName: local-path
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-backup-slot-2
+spec:
+  schedule: "7-59/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: db-backup
+        spec:
+          restartPolicy: OnFailure
+          nodeSelector:
+            banking.local/backup-slot: "2"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            fsGroup: 999
+          containers:
+            - name: backup
+              image: postgres:16
+              imagePullPolicy: IfNotPresent
+              command: ["bash", "/scripts/backup.sh"]
+              env:
+                - name: APP_PASSWORD
+                  valueFrom:
+                    secretKeyRef: {name: banking-db-credentials, key: app-password}
+                - name: BACKUP_KEEP
+                  value: "24"
+              resources:
+                requests: {cpu: 20m, memory: 64Mi}
+                limits: {cpu: 500m, memory: 256Mi}
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+                - name: scripts
+                  mountPath: /scripts
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: db-backups-slot-2
+            - name: scripts
+              configMap:
+                name: db-backup-script

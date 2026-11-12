@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -28,11 +29,16 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Connection, Engine, make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+from sqlalchemy.pool import NullPool
 from threading import Lock
 
 from shard_map import account_range_for_shard, shard_for_account
 
 MAX_BALANCE = Decimal("999999999999999999.99")
+# Two-integer advisory lock key (a separate key space from the bigint
+# per-transaction locks); k8s/base/backup.yaml takes it exclusively.
+_BACKUP_BARRIER_CLASS = 7420
+_BACKUP_BARRIER_ID = 1
 
 
 def _postgres_connection_options(
@@ -43,6 +49,74 @@ def _postgres_connection_options(
     if isinstance(configured_options, str):
         configured_options = (configured_options,)
     return " ".join((*configured_options, *required_options))
+
+
+def _session_safety_options() -> tuple[str, ...]:
+    # A Pod killed mid-transaction must not keep row locks for minutes:
+    # PostgreSQL ends its idle transaction, gives up on unacknowledged data
+    # after tcp_user_timeout, and waiters fail fast with a retryable error
+    # instead of piling up behind the lock.
+    return (
+        f"-c lock_timeout={int(os.getenv('BANK_DB_LOCK_TIMEOUT_MS', '3000'))}",
+        "-c idle_in_transaction_session_timeout="
+        f"{int(os.getenv('BANK_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS', '10000'))}",
+        f"-c tcp_user_timeout={int(os.getenv('BANK_DB_TCP_USER_TIMEOUT_MS', '10000'))}",
+    )
+
+
+def _keepalive_arguments() -> dict[str, Any]:
+    # Keepalives let PostgreSQL drop sessions (and their advisory locks) of
+    # crashed or partitioned Pods within seconds instead of hours.
+    return {
+        "connect_timeout": int(os.getenv("BANK_DB_CONNECT_TIMEOUT", "5")),
+        "keepalives": 1,
+        "keepalives_idle": 10,
+        "keepalives_interval": 5,
+        "keepalives_count": 3,
+    }
+
+
+def _durable_engine(database_url: str) -> Engine:
+    return create_engine(
+        database_url,
+        pool_pre_ping=True,
+        pool_size=int(os.getenv("BANK_DB_POOL_SIZE", "5")),
+        max_overflow=int(os.getenv("BANK_DB_MAX_OVERFLOW", "10")),
+        pool_timeout=float(os.getenv("BANK_DB_POOL_TIMEOUT", "10")),
+        connect_args={
+            "options": _postgres_connection_options(
+                database_url,
+                "-c synchronous_commit=on",
+                *_session_safety_options(),
+            ),
+            **_keepalive_arguments(),
+        },
+    )
+
+
+def _status_engine(database_url: str) -> Engine:
+    # Health checks use their own connection so an exhausted request pool is
+    # reported as overload, not as a database outage.
+    return create_engine(
+        database_url,
+        pool_pre_ping=True,
+        pool_size=1,
+        max_overflow=0,
+        pool_timeout=2,
+        connect_args={
+            "options": _postgres_connection_options(
+                database_url,
+                "-c statement_timeout=2000",
+            ),
+            **_keepalive_arguments(),
+        },
+    )
+
+
+def database_status(engine: Engine) -> dict[str, Any]:
+    with engine.connect() as connection:
+        in_recovery = bool(connection.scalar(text("SELECT pg_is_in_recovery()")))
+    return {"reachable": True, "writable": not in_recovery}
 
 
 class Base(DeclarativeBase):
@@ -244,16 +318,8 @@ class BankStore:
     def __init__(self, database_url: str) -> None:
         if not database_url.startswith(("postgresql://", "postgres://")):
             raise ValueError("DATABASE_URL must use the PostgreSQL protocol.")
-        self.engine = create_engine(
-            database_url,
-            pool_pre_ping=True,
-            connect_args={
-                "options": _postgres_connection_options(
-                    database_url,
-                    "-c synchronous_commit=on",
-                )
-            },
-        )
+        self.engine = _durable_engine(database_url)
+        self.status_engine = _status_engine(database_url)
         self.session_factory = sessionmaker(
             bind=self.engine,
             class_=Session,
@@ -316,14 +382,29 @@ class BankStore:
         self,
         account_range: tuple[str, str] | None = None,
     ) -> None:
-        Base.metadata.create_all(self.engine)
         accounts = self._account_rows_for_range(account_range)
-        with self.session_factory.begin() as session:
-            session.execute(
+        with self.engine.begin() as connection:
+            connection.scalar(
+                select(func.pg_advisory_xact_lock(
+                    func.hashtextextended("bank-schema-init", 0)))
+            )
+            Base.metadata.create_all(connection)
+            connection.execute(
                 insert(Account)
                 .values(accounts)
                 .on_conflict_do_nothing(index_elements=[Account.wallet])
             )
+
+    def status(self) -> dict[str, Any]:
+        return database_status(self.status_engine)
+
+    def prepared_transfer_counts(self) -> dict[str, int]:
+        with self.session_factory() as session:
+            rows = session.execute(
+                select(PreparedTransfer.state, func.count())
+                .group_by(PreparedTransfer.state)
+            ).all()
+        return {state: int(count) for state, count in rows}
 
     def get_balance(self, account: str) -> dict[str, Any]:
         with self.session_factory() as session:
@@ -1180,6 +1261,13 @@ class ShardedBankStore:
         for shard_id, store in self.stores.items():
             store.initialize(account_range_for_shard(shard_id))
 
+    def status(self) -> dict[str, Any]:
+        statuses = [store.status() for store in self.stores.values()]
+        return {
+            "reachable": all(item["reachable"] for item in statuses),
+            "writable": all(item["writable"] for item in statuses),
+        }
+
     def get_balance(self, account: str) -> dict[str, Any]:
         return self.stores[shard_for_account(account)].get_balance(account)
 
@@ -1324,24 +1412,97 @@ class CoordinatorStore:
             raise ValueError(
                 "BANK_COORDINATOR_DATABASE_URL must use the PostgreSQL protocol."
             )
-        self.engine = create_engine(
-            database_url,
-            pool_pre_ping=True,
-            connect_args={
-                "options": _postgres_connection_options(
-                    database_url,
-                    "-c synchronous_commit=on",
-                )
-            },
-        )
+        self.engine = _durable_engine(database_url)
+        self.status_engine = _status_engine(database_url)
         self.session_factory = sessionmaker(
             bind=self.engine,
             class_=Session,
             expire_on_commit=False,
         )
+        # Transaction locks pin one connection each for the whole 2PC run, so
+        # they use their own unpooled engine and cannot starve the main pool.
+        self.lock_engine = create_engine(
+            database_url,
+            poolclass=NullPool,
+            connect_args={
+                "options": _postgres_connection_options(
+                    database_url,
+                    f"-c tcp_user_timeout={int(os.getenv('BANK_DB_TCP_USER_TIMEOUT_MS', '10000'))}",
+                ),
+                **_keepalive_arguments(),
+            },
+        )
 
     def initialize(self) -> None:
-        CoordinatorBase.metadata.create_all(self.engine)
+        with self.engine.begin() as connection:
+            connection.scalar(
+                select(func.pg_advisory_xact_lock(
+                    func.hashtextextended("bank-coordinator-schema-init", 0)))
+            )
+            CoordinatorBase.metadata.create_all(connection)
+
+    def status(self) -> dict[str, Any]:
+        return database_status(self.status_engine)
+
+    def acquire_transaction_lock(
+        self,
+        transaction_id: str,
+        wait_seconds: float,
+    ) -> Connection | None:
+        """Take the cluster-wide owner lock of one coordinated transaction.
+
+        The lock is a session-level advisory lock held on a dedicated
+        connection; PostgreSQL releases it when the owning gateway Pod exits
+        or loses its connection, which is what lets another Pod recover it.
+        The owner also holds the backup barrier in shared mode, so a backup
+        (exclusive barrier) sees no 2PC state change in any database.
+        """
+        connection = self.lock_engine.connect()
+        try:
+            key = func.hashtextextended(
+                func.concat("bank-2pc:", transaction_id), 0)
+            barrier = (_BACKUP_BARRIER_CLASS, _BACKUP_BARRIER_ID)
+            if wait_seconds <= 0:
+                acquired = bool(
+                    connection.scalar(
+                        select(func.pg_try_advisory_lock_shared(*barrier)))
+                ) and bool(
+                    connection.scalar(select(func.pg_try_advisory_lock(key))))
+            else:
+                connection.execute(
+                    text("SELECT set_config('lock_timeout', :timeout, false)"),
+                    {"timeout": f"{int(wait_seconds * 1000)}ms"},
+                )
+                try:
+                    connection.scalar(
+                        select(func.pg_advisory_lock_shared(*barrier)))
+                    connection.scalar(select(func.pg_advisory_lock(key)))
+                    acquired = True
+                except SQLAlchemyError as error:
+                    if getattr(getattr(error, "orig", None), "pgcode", None) != "55P03":
+                        raise
+                    acquired = False
+            if not acquired:
+                connection.close()
+                return None
+            connection.commit()
+        except BaseException:
+            connection.close()
+            raise
+        return connection
+
+    @staticmethod
+    def release_transaction_lock(connection: Connection) -> None:
+        # Closing the unpooled connection ends the session and its lock.
+        connection.close()
+
+    def state_counts(self) -> dict[str, int]:
+        with self.session_factory() as session:
+            rows = session.execute(
+                select(CoordinatedTransfer.state, func.count())
+                .group_by(CoordinatedTransfer.state)
+            ).all()
+        return {state: int(count) for state, count in rows}
 
     def register_replica(
         self,

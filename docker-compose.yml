@@ -161,6 +161,7 @@ services:
     image: mini-banking-app:local
     container_name: mini-banking-self-healing-controller
     command: ["python", "self_healing_controller.py"]
+    user: "0"
     environment:
       BANK_COORDINATOR_DATABASE_URL: postgresql://banking:banking@coordinator-db:5432/banking_coordinator
       BANK_SHARD_A_DATABASE_URL: postgresql://banking:banking@shard-a-db:5432/banking_shard_a

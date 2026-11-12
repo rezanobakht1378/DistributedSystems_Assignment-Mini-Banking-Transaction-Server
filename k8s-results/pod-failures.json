@@ -1,0 +1,96 @@
+{
+  "started_at": "2026-11-12T11:08:48.213052+00:00",
+  "gateway": "http://127.0.0.1:7242",
+  "session": "8540cee3",
+  "passed": true,
+  "results": {
+    "pod-failures": {
+      "passed": true,
+      "details": {
+        "passed": true,
+        "killed_pods": [
+          "shard-a-app-65d6fc459b-jvvz4",
+          "shard-b-app-7f4476647b-k8ccb",
+          "gateway-7f97cbc6fc-mtz7d",
+          "shard-a-app-65d6fc459b-9m76h",
+          "shard-b-app-7f4476647b-bhnxn"
+        ],
+        "seconds_to_full_strength_after_last_kill": 16.0,
+        "ready_pods_after": {
+          "shard-a-app": [
+            "shard-a-app-65d6fc459b-bsnfm",
+            "shard-a-app-65d6fc459b-vkxfd"
+          ],
+          "shard-b-app": [
+            "shard-b-app-7f4476647b-crm6x",
+            "shard-b-app-7f4476647b-zszrk"
+          ],
+          "gateway": [
+            "gateway-7f97cbc6fc-h226q",
+            "gateway-7f97cbc6fc-j4qhh",
+            "gateway-7f97cbc6fc-mcssh",
+            "gateway-7f97cbc6fc-tzslq"
+          ]
+        }
+      },
+      "load": [
+        {
+          "concurrency": 8,
+          "operations": 578,
+          "throughput_per_second": 8.1,
+          "outcomes": {
+            "success": 578
+          },
+          "cross_shard_operations": 258,
+          "client_retries": 6,
+          "retry_reasons": {
+            "ReadTimeout": 4,
+            "http_503:upstream_timeout": 2
+          },
+          "seconds_with_errors": 4,
+          "seconds_with_errors_and_no_success": 0,
+          "max_seconds_to_definitive_answer": 26.31,
+          "backend_replicas": {
+            "shard-a-app-65d6fc459b-9m76h": 46,
+            "shard-a-app-65d6fc459b-jvvz4": 12,
+            "coordinator": 258,
+            "shard-b-app-7f4476647b-k8ccb": 23,
+            "shard-b-app-7f4476647b-bhnxn": 61,
+            "shard-a-app-65d6fc459b-bsnfm": 62,
+            "shard-b-app-7f4476647b-zszrk": 66,
+            "shard-a-app-65d6fc459b-vkxfd": 34,
+            "shard-b-app-7f4476647b-crm6x": 16
+          },
+          "gateway_replicas": {
+            "gateway-7f97cbc6fc-j4qhh": 391,
+            "gateway-7f97cbc6fc-mtz7d": 101,
+            "gateway-7f97cbc6fc-h226q": 86
+          }
+        }
+      ],
+      "invariants": {
+        "checks": {
+          "all_operations_resolved": true,
+          "no_unexpected_errors": true,
+          "money_conserved": true,
+          "no_negative_balances": true,
+          "no_duplicate_effects": true,
+          "ledger_chain_intact": true,
+          "2pc_outcomes_match_client_answers": true,
+          "2pc_all_terminal": true,
+          "2pc_atomic_on_participants": true
+        },
+        "passed": true,
+        "total_before": "5182.06",
+        "acknowledged_deposits": "5.79",
+        "total_expected": "5187.85",
+        "total_actual": "5187.85",
+        "coordinator_states": {
+          "COMMITTED": 258
+        },
+        "participant_rows": 516,
+        "problems": {}
+      }
+    }
+  }
+}

@@ -1,0 +1,221 @@
+# PostgreSQL primary + synchronous standby for one database cluster.
+#   coordinator-db     headless Service: stable per-Pod DNS for replication
+#   coordinator-db-rw  the current primary only (Pod label db-role=primary,
+#                  maintained by db-controller from the leader Lease)
+apiVersion: v1
+kind: Service
+metadata:
+  name: coordinator-db
+  labels:
+    app.kubernetes.io/name: coordinator-db
+    app.kubernetes.io/component: database
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: coordinator-db
+  ports:
+    - name: postgres
+      port: 5432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: coordinator-db-rw
+  labels:
+    app.kubernetes.io/name: coordinator-db
+    app.kubernetes.io/component: database
+spec:
+  selector:
+    app.kubernetes.io/name: coordinator-db
+    db-role: primary
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: coordinator-db
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: coordinator-db
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: coordinator-db
+  labels:
+    app.kubernetes.io/name: coordinator-db
+    app.kubernetes.io/component: database
+spec:
+  serviceName: coordinator-db
+  replicas: 2
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: OnDelete
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: coordinator-db
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: coordinator-db
+        app.kubernetes.io/component: database
+    spec:
+      serviceAccountName: postgres
+      terminationGracePeriodSeconds: 30
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: coordinator-db
+      initContainers:
+        - name: leader-record
+          image: mini-banking-app
+          imagePullPolicy: IfNotPresent
+          command: ["python", "db_controller.py", "bootstrap",
+                    "--cluster", "coordinator-db", "--pod", "$(POD_NAME)",
+                    "--output", "/bootstrap"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+            requests: {cpu: 20m, memory: 48Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          volumeMounts:
+            - name: bootstrap
+              mountPath: /bootstrap
+        - name: prepare-data
+          image: postgres:16
+          imagePullPolicy: IfNotPresent
+          command: ["bash", "/scripts/prepare.sh"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: DB_SERVICE
+              value: coordinator-db
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_DB
+              value: banking_coordinator
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: {name: banking-db-credentials, key: superuser-name}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: banking-db-credentials, key: superuser-password}
+            - name: REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: banking-db-credentials, key: replication-password}
+            - name: APP_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: banking-db-credentials, key: app-password}
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {cpu: "1", memory: 256Mi}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: bootstrap
+              mountPath: /bootstrap
+            - name: scripts
+              mountPath: /scripts
+      containers:
+        - name: postgres
+          image: postgres:16
+          imagePullPolicy: IfNotPresent
+          command: ["bash", "/scripts/start.sh"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: DB_SERVICE
+              value: coordinator-db
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_DB
+              value: banking_coordinator
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: {name: banking-db-credentials, key: superuser-name}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: banking-db-credentials, key: superuser-password}
+            - name: REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: banking-db-credentials, key: replication-password}
+            - name: APP_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: banking-db-credentials, key: app-password}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -p 5432 -U \"$POSTGRES_USER\" -d postgres"]
+            periodSeconds: 3
+            timeoutSeconds: 2
+            failureThreshold: 2
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -p 5432 -U \"$POSTGRES_USER\" -d postgres"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 100m, memory: 192Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: bootstrap
+              mountPath: /bootstrap
+            - name: scripts
+              mountPath: /scripts
+            - name: hba
+              mountPath: /etc/postgresql
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: bootstrap
+          emptyDir: {}
+        - name: scripts
+          configMap:
+            name: postgres-scripts
+            defaultMode: 0755
+            items:
+              - {key: prepare.sh, path: prepare.sh}
+              - {key: start.sh, path: start.sh}
+        - name: hba
+          configMap:
+            name: postgres-scripts
+            items:
+              - {key: pg_hba.conf, path: pg_hba.conf}
+        - name: initdb
+          configMap:
+            name: postgres-scripts
+            defaultMode: 0755
+            items:
+              - {key: 10-roles.sh, path: 10-roles.sh}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

@@ -1,0 +1,128 @@
+# Application Pods never talk to the Kubernetes API.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: banking-app
+automountServiceAccountToken: false
+---
+# Database Pods read (and on first start create) their cluster's leader Lease.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: db-leader-bootstrap
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: db-leader-bootstrap
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: db-leader-bootstrap
+subjects:
+  - kind: ServiceAccount
+    name: postgres
+    namespace: banking
+---
+# The database controller changes leader Leases, routes the -rw Services by
+# labelling Pods, fences old primaries by deleting their Pods, and rebuilds
+# standbys (deleting their claims) whose node was removed or that sit on the
+# wrong node.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: db-controller
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: db-controller
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get"]
+---
+# Node placement and node-local volumes are cluster-scoped and read-only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: banking-db-controller-topology
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+  # Volumes on a lost node are released without the provisioner's cleanup.
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: banking-db-controller-topology
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: banking-db-controller-topology
+subjects:
+  - kind: ServiceAccount
+    name: db-controller
+    namespace: banking
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: db-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: db-controller
+subjects:
+  - kind: ServiceAccount
+    name: db-controller
+    namespace: banking
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: prometheus
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: banking
